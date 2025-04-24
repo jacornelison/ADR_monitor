@@ -1,14 +1,15 @@
 
 import pandas as pd
 import ADRConfig as cg
-
+import os
+os.environ['HDF5_USE_FILE_LOCKING'] = 'FALSE'
 
 # Save data to an archive file
 # Automatically create new files after a certain limit is reached?
 def save_or_create(filename,data):
     #
     
-    data.to_hdf(filename,key="data",mode="a",format="table",append=True)
+    data.to_hdf(os.path.join(cg.datadir,filename),key="data",mode="a",format="table",append=True)
     
     return 
 
@@ -19,7 +20,7 @@ def init_new_arc(filename, do_save=True):
     
     data = pd.DataFrame(data)
     if do_save:
-        data.to_hdf(filename,key="data",mode="w",format="table")
+        data.to_hdf(os.path.join(cg.datadir,filename),key="data",mode="w",format="table")
     
     return data
 

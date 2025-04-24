@@ -19,7 +19,7 @@ from pyqtgraph.console import ConsoleWidget
 from pyqtgraph.dockarea.Dock import Dock
 from pyqtgraph.dockarea.DockArea import DockArea
 from pyqtgraph.Qt import QtWidgets, QtCore
-import os
+import ADRConfig as cg
 
 
 app = pg.mkQApp("DockArea Example")
@@ -82,7 +82,6 @@ saveBtn.clicked.connect(save)
 restoreBtn.clicked.connect(load)
 
 import pandas as pd
-import ADRConfig as cg
 
 filename = 'test'
 
@@ -104,7 +103,7 @@ plot_list = init_dock_and_plot(area)
 
 def update_plots():
     global filename, plot_list
-    data = pd.read_hdf(filename)
+    data = pd.read_hdf(os.path.join(cg.datadir,filename))
     for kidx,k in enumerate(data.keys()[1::]):
         plot_list[kidx].plot().setData(x=data["Time"],y=data[k])
 
