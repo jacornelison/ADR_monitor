@@ -16,7 +16,7 @@ from ADR_Resistor_Box import Driver as rb
 from ADR_DAQ import ADR_DAQ
 import asyncio as aio
 daq = ADR_DAQ()
-#%%
+
 daq_task = aio.create_task(daq.start())
 
 #%%
@@ -80,20 +80,58 @@ async def ramp_mag(final_magnet_current=0, time_to_final_voltage=30,
         V960 = sim960.get_OMON()
         print(V960_set, V960)
         assert np.abs(V960-V960_set) < 0.005, 'SIM960 output is not tracing set point'
-        
+            
     print('Ramp Mag finished')
+
+
+async def do_mag_cycle(magup_time=30, magsoak_time=60, magdown_time=60, is_first_cycle=False, final_max_current=9, lead_resistance=1.2):
+    # All times in args are in minutes.
+    
+    # Note: the mag ramp code is borrowed from previous ADR user. To-do: rewrite.
+    # Have all of the current/voltage info... Why do we not use it?
+    
+    if is_first_cycle: # Make sure the heat switch is closed
+        hs.performSetValue('Heat Switch', 'Open')
+        hs.performSetValue('Heat Switch', 'Close')
+    
+    await ramp_mag(final_magnet_current=final_max_current,time_to_final_voltage=magup_time,lead_resistance=lead_resistance)
+    
+    # reset the heat switch since the magnet will have put tension on things.
+    hs.performSetValue('Heat Switch', 'Open')
+    hs.performSetValue('Heat Switch', 'Close')
+    
+    # Soak the magnet
+    comp_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    print(f'Mag Up completed at:\n{comp_time}')
+    print(f'Soaking until for {magsoak_time} minutes.')
+    #print('Use mag.stop to stop or mag.pause to pause in the terminal.')
+    await aio.sleep(magsoak_time*60) # make this into a breakable loop when we put it into a class.
+    
+    hs.performSetValue('Heat Switch', 'Open')
+        
+    await ramp_mag(final_magnet_current=0,time_to_final_voltage=magdown_time,lead_resistance=lead_resistance)
+    
+    comp_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    print(f'Mag Down completed at:\n{comp_time}')
+    
+    return
+
+
+
+#%% Mag cycle
+
+aio.create_task(do_mag_cycle())
 
 
 
 #%% Mag Up
 
 # Re-close heat switch
-hs.performSetValue('Heat Switch', 'Open')
-hs.performSetValue('Heat Switch', 'Close')
+#hs.performSetValue('Heat Switch', 'Open')
+#hs.performSetValue('Heat Switch', 'Close')
 
 # Mag up
-ramp_mag(final_magnet_current=9, time_to_final_voltage=30,
-             lead_resistance=1.2)
+ramp_mag(final_magnet_current=9, time_to_final_voltage=30, lead_resistance=1.2)
 
 # Reset heat switch after mag up -- strong field bends things.
 hs.performSetValue('Heat Switch', 'Open')

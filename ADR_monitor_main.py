@@ -13,6 +13,7 @@ would consist of dockable components.
 
 import numpy as np
 import os
+import time
 os.environ['HDF5_USE_FILE_LOCKING'] = 'FALSE'
 import pyqtgraph as pg
 from pyqtgraph.console import ConsoleWidget
@@ -142,14 +143,19 @@ def update_plots():
     data = arc.load_arc()
     t = data["Time"].values
     idx = (t <= t[-1])
+    #tend = t[0]
     if params['Global Paramters','Zoom Scrolling','Scrolling']:
         rng = params['Global Paramters','Zoom Scrolling','Scroll Time (Min)']
         idx = (t >= (t[-1] - rng*60))
+        #tend = t[-1]-rng*60
     for kidx,k in enumerate(arc.channel_list[1::]):
         plot_list[kidx].plot.setData(x=data["Time"].iloc[idx].values,y=data[k].iloc[idx].values)
     
-
+        #plot_list[kidx].setLimits(xMin=tend,xMax=t[-1]+30)
+        #plot_list[kidx].PlotWidget.setXRange(tend,t[-1]+30)
     
+
+
 
 
 

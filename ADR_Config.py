@@ -16,7 +16,7 @@ class ADR_Config():
         self.daq_verbose_output = False # Will output data to terminal if True
         
         # GUI specifics
-        self.plot_refresh_rate = 500 # in milliseconds
+        self.plot_refresh_rate = 3000 # in milliseconds
         self.monitor_gui_parameters = self.get_mon_gui_parameters()
         
         # Channel Specifics
