@@ -1,10 +1,10 @@
 
+import bisect
 import pandas as pd
 from ADR_Config import ADR_Config
 import os
 import time
 from datetime import datetime
-import glob
 import numpy as np
 os.environ['HDF5_USE_FILE_LOCKING'] = 'FALSE'
 cg = ADR_Config()
@@ -52,7 +52,7 @@ class ADR_ARC():
         return
       
     
-    def load_arc(self,t_newest=None,t_oldest=None,filename=None):
+    def load_arc(self,t_newest=None,t_oldest=None,filename=None,columns=None):
         
         if filename:        
             filename.replace(".hdf5","")        
@@ -68,6 +68,9 @@ class ADR_ARC():
             except ValueError:
                 del arcfiles[idx]
         
+        # Sort the lists
+        timelist, arcfiles = zip(*sorted(zip(timelist,arcfiles)))
+        #print(timelist,arcfiles)
         timelist = np.array(timelist)
         
         # Exclude data outside of our desired timeframe
@@ -77,12 +80,33 @@ class ADR_ARC():
             t_oldest = t_newest-24*60*60
             
         cutidx = (timelist<=t_newest) & (timelist>=t_oldest)
+        # The arcfile with the oldest data will have an older name time than the date range,
+        # so include one extra file to account for that.
+        # ... also, find a better way to do this. I think read_hdf5 might already have this ability
         
-        arcfiles = np.array(arcfiles)[cutidx]
-        data = self.empty_data_frame
-        for idx,af in enumerate(arcfiles):
-            data = pd.concat([data,pd.read_hdf(os.path.join(cg.datadir,af))],ignore_index=True)
-        return data
+        idx_lower = bisect.bisect_right(timelist,t_oldest)
+        idx_upper = bisect.bisect_right(timelist,t_newest)
+        
+        
+        arcfiles = np.array(arcfiles)[np.arange(idx_lower-1,idx_upper)]
+        #arcfiles = np.array(arcfiles)[cutidx]
+        # if columns == None:
+        #     data = self.empty_data_frame
+        # else:
+        #     data = pd.DataFrame(columns=columns)
+        
+        # for idx,af in enumerate(arcfiles):
+        #     data = pd.concat([data,pd.read_hdf(os.path.join(cg.datadir,af),columns=columns)],ignore_index=True)
+        
+        frames = []
+        for af in arcfiles:
+            frames.append(pd.read_hdf(os.path.join(cg.datadir, af), columns=columns))
+        
+        data = pd.concat(frames, ignore_index=True)
+        
+        #return data
+        cutidx = (data["Time"].values>=t_oldest) & (data["Time"].values<=t_newest)
+        return data.iloc[cutidx]
         
         
         

@@ -126,17 +126,7 @@ aio.create_task(do_mag_cycle())
 
 #%% Mag Up
 
-# Re-close heat switch
-#hs.performSetValue('Heat Switch', 'Open')
-#hs.performSetValue('Heat Switch', 'Close')
-
-# Mag up
-ramp_mag(final_magnet_current=9, time_to_final_voltage=30, lead_resistance=1.2)
-
-# Reset heat switch after mag up -- strong field bends things.
-hs.performSetValue('Heat Switch', 'Open')
-hs.performSetValue('Heat Switch', 'Close')
-
+aio.create_task(ramp_mag(final_magnet_current=9, time_to_final_voltage=60*3))
 # Just print the completion time, but soak for at least 20 minutes
 comp_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 print(f'Mag Up completed at:\n{comp_time}')
@@ -146,7 +136,7 @@ print(f'Mag Up completed at:\n{comp_time}')
 # -- Open HS
 #hs.performSetValue('Heat Switch', 'Open')
 # -- Demag
-aio.create_task(ramp_mag(final_magnet_current=0, time_to_final_voltage=20, lead_resistance=1.2))
+aio.create_task(ramp_mag(final_magnet_current=0, time_to_final_voltage=90))
 
 comp_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 print(f'Mag Down completed at:\n{comp_time}')

@@ -3,6 +3,8 @@
 import os
 import time
 import pt415_interface
+#pt415_names = [_field.id for _field in pt415_interface.pt415_fields if _field.permission=='read']
+
 
 class ADR_Config():
     def __init__(self,init_channel_functions=False):
@@ -16,7 +18,7 @@ class ADR_Config():
         self.daq_verbose_output = False # Will output data to terminal if True
         
         # GUI specifics
-        self.plot_refresh_rate = 3000 # in milliseconds
+        self.plot_refresh_rate = 1000 # in milliseconds
         self.monitor_gui_parameters = self.get_mon_gui_parameters()
         
         # Channel Specifics
