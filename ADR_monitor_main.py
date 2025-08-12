@@ -26,9 +26,9 @@ from ADR_ARC import ADR_ARC
 arc = ADR_ARC()
 cg = ADR_Config()
 
+global area, plot_list, plt_params
 
-
-app = pg.mkQApp("DockArea Example")
+app = pg.mkQApp("Monitor Application")
 win = QtWidgets.QMainWindow()
 area = DockArea()
 area_params = DockArea()
@@ -41,7 +41,7 @@ splitter.setStretchFactor(1, 1)  # Plot area takes most space
 
 win.setCentralWidget(splitter)
 win.resize(1000,500)
-win.setWindowTitle('pyqtgraph example: dockarea')
+win.setWindowTitle('ADR Monitor Plots')
 
 # ## Create docks, place them into the window one at a time.
 # ## Note that size arguments are only a suggestion; docks will still have to
@@ -83,38 +83,85 @@ bar to place it in its own window.
 #w1.addWidget(label, row=0, col=0)
 #w1.addWidget(saveBtn, row=1, col=0)
 #w1.addWidget(restoreBtn, row=2, col=0)
-params = Parameter.create(name='params',type='group',children=cg.monitor_gui_parameters)
-t = ParameterTree()
-t.setParameters(params,showTop=False)
+params = Parameter.create(name='globals',type='group',children=cg.monitor_gui_parameters)
+
 #w1.addWidget(t)
-d1.addWidget(t)
+
 
 
 # import pandas as pd
 
 class ADR_plot():
-    def __init__(self,ch_name):
-        self.Dock = Dock(name=ch_name,closable=True,size=(200,100))
+    global area, plot_list, plt_params
+    def __init__(self,ch_name,ch_group):
+        self.ch_name = ch_name
+        self.ch_group = ch_group
+        self.area = area
+        self.Dock = Dock(name=ch_name,size=(200,100))
         self.PlotWidget = pg.PlotWidget(axisItems={'bottom':pg.DateAxisItem()})
         self.plot = self.PlotWidget.plot(pen=pg.mkPen(color=(255,51,0),width=2))
         
         self.PlotWidget.showGrid(x=True,y=True)
         self.Dock.addWidget(self.PlotWidget)
-
-
-def init_dock_and_plot(area,channel_list,channel_group):
-    plot_list = []
-    
-    for kidx,k in enumerate(channel_list):
-        plot_list.append(ADR_plot(ch_name=k))
+        self.params = self.init_params()
         
-        if kidx==0:
-            area.addDock(plot_list[kidx].Dock)
-        elif channel_group[kidx]==channel_group[kidx-1]:
-            area.addDock(plot_list[kidx].Dock,'below',plot_list[kidx-1].Dock)
+        
+    def init_params(self):
+        params = Parameter.create(name=self.ch_name, title=self.ch_name, type='group', children=[
+        {'name': 'On/Off','type':'bool','value':True},
+        {'name': 'Log Scale','type':'bool','value':False},
+        #{'name': 'Color', 'type': 'color', 'value': (255,51,0), 'tip': "This is a color button"},
+        ])
+        params.param('On/Off').sigValueChanged.connect(self.toggle_dock)
+        params.param('Log Scale').sigValueChanged.connect(self.toggle_log_scale)
+        return params
+
+    def toggle_dock(self,chparm,parmstate):
+        global area, plot_list, plt_params
+        if parmstate:
+            self.Dock = Dock(name=self.ch_name,closable=True,size=(200,100))
+            self.PlotWidget.showGrid(x=True,y=True)
+            self.Dock.addWidget(self.PlotWidget)
+            
+            # Find the first active dock in the channel group
+            for chldidx,child in enumerate(plt_params.param(f'Channel Group {self.ch_group}').children()):
+                if child.name() != self.ch_name and child.param('On/Off').value:
+                    area.addDock(self.Dock,'above',plot_list[self.ch_group][chldidx].Dock)
+                    break
+                else:
+                    continue
+
+            
         else:
-            area.addDock(plot_list[kidx].Dock,'bottom',plot_list[kidx-1].Dock)
-    return plot_list
+            #area.removeDock(self.Dock)
+            self.Dock.close()
+    
+    def toggle_log_scale(self,chparm,parmstate):
+        self.plot.setLogMode(False, parmstate)
+
+def init_dock_and_plot(channel_list,channel_group):
+    global area, plot_list, plt_params
+    plot_list = []
+    plt_params = Parameter.create(name='params',title='Plot Options', type='group', children=[])
+    
+    for grpidx,grp in enumerate(np.unique(channel_group)):
+        plot_list.append([])
+        plt_params.addChild(Parameter.create(name=f'Channel Group {grp}',title=f'Channel Group {grp}', type='group', children=[]))
+        
+
+    for kidx,k in enumerate(channel_list):
+        plot_list[channel_group[kidx]].append(ADR_plot(ch_name=k,ch_group=channel_group[kidx]))
+        plt_params.param(f'Channel Group {channel_group[kidx]}').addChild(plot_list[channel_group[kidx]][-1].params)
+        if kidx==0:
+            area.addDock(plot_list[channel_group[kidx]][-1].Dock)
+            
+        elif channel_group[kidx]==channel_group[kidx-1]:
+            area.addDock(plot_list[channel_group[kidx]][-1].Dock,'below',plot_list[channel_group[kidx]][-2].Dock)
+        else:
+            area.addDock(plot_list[channel_group[kidx]][-1].Dock,'bottom',plot_list[channel_group[kidx]-1][0].Dock)
+    
+    
+
 
 def get_channel_groups():
     mc = cg.monitor_channels
@@ -124,19 +171,19 @@ def get_channel_groups():
         subnames = mc[chan][3]
         if subnames==None:
             channel_list.append(chan)
-            channel_group.append(chidx)
+            channel_group.append(chidx-1)
         else:
             for subch in subnames:
                 channel_list.append(chan.replace(cg.channel_wildcard,subch))       
-                channel_group.append(chidx)
+                channel_group.append(chidx-1)
     
     # Return all channels except Time
     return channel_list[1::], channel_group[1::]
 
 
 channel_list, channel_group = get_channel_groups()
-plot_list = init_dock_and_plot(area,channel_list, channel_group)
-#print(plot_list)
+init_dock_and_plot(channel_list, channel_group)
+params.addChild(plt_params)
 
 def update_plots():
     global plot_list, params
@@ -148,8 +195,17 @@ def update_plots():
         rng = params['Global Paramters','Zoom Scrolling','Scroll Time (Min)']
         idx = (t >= (t[-1] - rng*60))
         #tend = t[-1]-rng*60
-    for kidx,k in enumerate(arc.channel_list[1::]):
-        plot_list[kidx].plot.setData(x=data["Time"].iloc[idx].values,y=data[k].iloc[idx].values)
+    for grpidx,pltgrp in enumerate(plot_list):
+        
+        for pltidx,plt in enumerate(pltgrp):
+            if any([chan==plt.ch_name for chan in cg.channel_plot_options.keys()]):
+                if any([k=="convert_func" for k in cg.channel_plot_options[plt.ch_name].keys()]):
+                    plt.plot.setData(x=data["Time"].iloc[idx].values,y=getattr(cg.mf,cg.channel_plot_options[plt.ch_name]["convert_func"])(data[plt.ch_name].iloc[idx].values))
+            else:
+                plt.plot.setData(x=data["Time"].iloc[idx].values,y=data[plt.ch_name].iloc[idx].values)
+        
+    # for kidx,k in enumerate(arc.channel_list[1::]):
+    #     plot_list[kidx].plot.setData(x=data["Time"].iloc[idx].values,y=data[k].iloc[idx].values)
     
         #plot_list[kidx].setLimits(xMin=tend,xMax=t[-1]+30)
         #plot_list[kidx].PlotWidget.setXRange(tend,t[-1]+30)
@@ -184,7 +240,9 @@ timer.start(cg.plot_refresh_rate)
 # w6.plot(np.random.normal(size=100))
 # d6.addWidget(w6)
 
-
+t = ParameterTree()
+t.setParameters(params,showTop=False)
+d1.addWidget(t)
 tree_size = t.sizeHint()
 d1.resize(tree_size.width() + 20, tree_size.height() + 20)
 win.resize(1000,500)

@@ -19,25 +19,32 @@ daq = ADR_DAQ()
 
 daq_task = aio.create_task(daq.start())
 
-#%%
+#%
 SAFE_RAMP_RATE = 5.6e-3 #Amps/second
 V_GAIN = 2 # Kepco V = 2 * SIM960
 
 sim960 = daq.adr_config.sim960
 #sim925 = daq.adr_config.sim925
-#sim921 = daq.adr_config.sim921
+
+#%% Reinit the FAA thermometer
+# Do this whenever we go above 5K.
+sim921 = daq.adr_config.sim921
+sim921.set_EXCI(3)
+
+#%% Turn off the pulse tube
+
+#daq.adr_config.pt415_interface.performSetValue('turn_off')
 
 
+#%% Initialize the power supply controller
 
-
-#%% Mag up
-# -- Cycle the heat switch
 V960 = sim960.get_OMON() # output voltage
 assert np.abs(V960) < 0.004, 'SIM960 output is not zero'
 
-hs.performOpen()
-hs.performSetValue('Heat Switch', 'Open')
-hs.performSetValue('Heat Switch', 'Close')
+#%%
+# hs.performOpen()
+# hs.performSetValue('Heat Switch', 'Open')
+# hs.performSetValue('Heat Switch', 'Close')
 
 # -- PID controller to manual mode and 0V
 sim960.set_MOUT(0) # manual output value, in manual mode, PID disabled
@@ -120,13 +127,13 @@ async def do_mag_cycle(magup_time=30, magsoak_time=60, magdown_time=60, is_first
 
 #%% Mag cycle
 
+#aio.create_task(do_mag_cycle(is_first_cycle=True))
 aio.create_task(do_mag_cycle())
-
 
 
 #%% Mag Up
 
-aio.create_task(ramp_mag(final_magnet_current=9, time_to_final_voltage=60*3))
+aio.create_task(ramp_mag(final_magnet_current=5, time_to_final_voltage=15))
 # Just print the completion time, but soak for at least 20 minutes
 comp_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 print(f'Mag Up completed at:\n{comp_time}')
@@ -136,7 +143,7 @@ print(f'Mag Up completed at:\n{comp_time}')
 # -- Open HS
 #hs.performSetValue('Heat Switch', 'Open')
 # -- Demag
-aio.create_task(ramp_mag(final_magnet_current=0, time_to_final_voltage=90))
+aio.create_task(ramp_mag(final_magnet_current=0, time_to_final_voltage=30))
 
 comp_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 print(f'Mag Down completed at:\n{comp_time}')

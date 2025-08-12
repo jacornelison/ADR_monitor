@@ -3,11 +3,14 @@
 import os
 import time
 import pt415_interface
+import ADR_misc_funcs as mf
 #pt415_names = [_field.id for _field in pt415_interface.pt415_fields if _field.permission=='read']
 
 
 class ADR_Config():
     def __init__(self,init_channel_functions=False):
+        self.mf = mf
+        
         # Data specifics
         self.datadir =  os.path.join('C:\\Users','detector-group','Documents','ADR_Monitor_Data')
         self.data_size_threshold = 25 # in Megabytes
@@ -62,7 +65,9 @@ class ADR_Config():
             "Cmpsr #_" : ["pt415_interface","status_read_simple",None, pt415_interface.pt415_names, range(0,len(pt415_interface.pt415_names))],
         }
         
-        self.channel_plot_options = {}
+        self.channel_plot_options = {
+            "Sim970 Pressure (Torr)": {"convert_func":"SIM970_pressure_curve"},
+            }
     
     def get_mon_gui_parameters(self):
         params = [
@@ -72,7 +77,7 @@ class ADR_Config():
                      {'name':'Zoom Scrolling', 'type':'group','children':
                       [
                           {'name':'Scrolling','type':'bool','value':True},
-                          {'name':'Scroll Time (Min)','type':'float','value':5.0},
+                          {'name':'Scroll Time (Min)','type':'float','value':120.0},
                        ]                      
                       }   
                     ],
