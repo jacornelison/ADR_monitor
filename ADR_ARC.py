@@ -100,7 +100,11 @@ class ADR_ARC():
         
         frames = []
         for af in arcfiles:
-            frames.append(pd.read_hdf(os.path.join(cg.datadir, af), columns=columns))
+            try:
+                frames.append(pd.read_hdf(os.path.join(cg.datadir, af), columns=columns))
+            except ValueError:
+                # Sometimes the load freaks out when when the DAQ makes a new arcfile.
+                continue
         
         data = pd.concat(frames, ignore_index=True)
         

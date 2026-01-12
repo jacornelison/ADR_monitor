@@ -10,6 +10,7 @@ import threading
 import numpy as np
 import os
 from HPD_Heat_Switch import Driver as hs
+hs.performOpen()
 from ADR_Resistor_Box import Driver as rb
 #from SRS_SIM9XX_v3 import SIM900, SIM960, SIM921, SIM922, SIM925, SIM970
 
@@ -33,7 +34,7 @@ sim921.set_EXCI(3)
 
 #%% Turn off the pulse tube
 
-#daq.adr_config.pt415_interface.performSetValue('turn_off')
+# daq.adr_config.pt415_interface.performSetValue('turn_off')
 
 
 #%% Initialize the power supply controller
@@ -42,9 +43,9 @@ V960 = sim960.get_OMON() # output voltage
 assert np.abs(V960) < 0.004, 'SIM960 output is not zero'
 
 #%%
-# hs.performOpen()
-# hs.performSetValue('Heat Switch', 'Open')
-# hs.performSetValue('Heat Switch', 'Close')
+hs.performOpen()
+hs.performSetValue('Heat Switch', 'Open')
+hs.performSetValue('Heat Switch', 'Close')
 
 # -- PID controller to manual mode and 0V
 sim960.set_MOUT(0) # manual output value, in manual mode, PID disabled
@@ -133,8 +134,7 @@ aio.create_task(do_mag_cycle())
 
 #%% Mag Up
 
-aio.create_task(ramp_mag(final_magnet_current=5, time_to_final_voltage=15))
-# Just print the completion time, but soak for at least 20 minutes
+aio.create_task(ramp_mag(final_magnet_current=5, time_to_final_voltage=30))
 comp_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 print(f'Mag Up completed at:\n{comp_time}')
 
@@ -144,7 +144,6 @@ print(f'Mag Up completed at:\n{comp_time}')
 #hs.performSetValue('Heat Switch', 'Open')
 # -- Demag
 aio.create_task(ramp_mag(final_magnet_current=0, time_to_final_voltage=30))
-
 comp_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 print(f'Mag Down completed at:\n{comp_time}')
 
