@@ -1,13 +1,31 @@
-# config file for ADR scripts
+"""ADR configuration for the ADR monitor/DAQ (time-range enabled).
+
+This variant of ADR_Config includes an additional ParameterTree group
+("Global Paramters" -> "Time Range") used by ADR_monitor_main_time_range.
+
+The config defines:
+- where archive data live on disk
+- channel definitions (including wildcard-expanded subchannels)
+- GUI parameters and refresh rates
+- optional conversion functions for plotting
+"""
 
 import os
 import time
 import pt415_interface
 import ADR_misc_funcs as mf
-#pt415_names = [_field.id for _field in pt415_interface.pt415_fields if _field.permission=='read']
 
 
 class ADR_Config():
+    """Configuration container for ADR monitoring and acquisition.
+
+    Parameters
+    ----------
+    init_channel_functions:
+        If True, import and initialize instrument interfaces (SIM9xx, PT415, etc.).
+        The monitor GUI typically runs with this False and reads from the archive.
+    """
+
     def __init__(self,init_channel_functions=False):
         self.mf = mf
         
@@ -70,19 +88,37 @@ class ADR_Config():
             }
     
     def get_mon_gui_parameters(self):
+        """Build the ParameterTree schema used by the GUI.
+
+        Returns a list of parameter dictionaries compatible with
+        ``pyqtgraph.parametertree.Parameter.create(children=...)``.
+
+        The "Time Range" group is used by the monitor GUI to:
+        - freeze plotting to a manual [start, end] window (and pause live updates)
+        - return to continuous plotting of the last 24 hours
+        """
         params = [
             {
-                'name': 'Global Paramters', 'type':'group','children':
+                'name': 'Global Paramters', 'type': 'group', 'children':
                     [
-                     {'name':'Zoom Scrolling', 'type':'group','children':
-                      [
-                          {'name':'Scrolling','type':'bool','value':True},
-                          {'name':'Scroll Time (Min)','type':'float','value':120.0},
-                       ]                      
-                      }   
+                        {'name': 'Zoom Scrolling', 'type': 'group', 'children':
+                            [
+                                {'name': 'Scrolling', 'type': 'bool', 'value': True},
+                                {'name': 'Scroll Time (Min)', 'type': 'float', 'value': 120.0},
+                            ]
+                        },
+                        {'name': 'Time Range', 'type': 'group', 'children':
+                            [
+                                {'name': 'Use Manual Range', 'type': 'bool', 'value': False},
+                                {'name': 'Start (YYYY-MM-DD HH:MM:SS)', 'type': 'str', 'value': ''},
+                                {'name': 'End (YYYY-MM-DD HH:MM:SS)', 'type': 'str', 'value': ''},
+                                {'name': 'Apply Manual Range', 'type': 'action'},
+                                {'name': 'Return to Live (Last 24h)', 'type': 'action'},
+                            ]
+                        }
                     ],
-                }
-            ]
+            }
+        ]
         return params
     
     def __del__(self,init_channel_functions=False):
@@ -96,11 +132,3 @@ class ADR_Config():
 
 
 
-# if __name__ == '__main__':
-#     chname = "SIM922 300K"
-#     #ch_fun_data = monitor_channels[chname]
-#     #val = globals()[ch_fun_data[0]](*ch_fun_data[1])
-#     val = getattr(globals()["sim922"], "get_TVAL")(0)
-#     print(val)
-#     #val = getattr(globals()["sim922"], "close")()
-    
