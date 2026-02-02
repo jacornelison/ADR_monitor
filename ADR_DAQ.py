@@ -12,6 +12,7 @@ import pandas as pd
 import time
 #import threading as th
 import asyncio as aio
+from ADR_shared import SIM_IO_LOCK
 arc = ADR_ARC()
 cg = ADR_Config(init_channel_functions=True)
 mc = cg.monitor_channels
@@ -22,14 +23,46 @@ class ADR_DAQ():
         self.sample_rate = copy.deepcopy(cg.daq_sample_rate)
         self.verbose = copy.deepcopy(cg.daq_verbose_output)
         self.adr_config = cg
-        self.command_queue = aio.Queue() #Allow for command changes
+
+        # Shared SIM900 I/O lock (critical)
+        self.sim_lock = SIM_IO_LOCK
+
+        # Latest “fast” magnet telemetry (for control loops)
+        self.mag_queue = aio.Queue(maxsize=1)
+        self._latest_mag = None
+        self._latest_mag_lock = aio.Lock()
+
+        self.command_queue = aio.Queue()
         self._stop_event = aio.Event()
         self._pause_event = aio.Event()
-        self._pause_event.set() # Initially not paused
+        self._pause_event.set()
         self.task = None
         self.data = None
         return
-    
+
+    async def _put_mag(self, mag_dict: dict) -> None:
+        """Store and publish newest magnet telemetry without growing the queue."""
+        async with self._latest_mag_lock:
+            self._latest_mag = mag_dict
+
+        # “latest wins” queue semantics
+        try:
+            if self.mag_queue.full():
+                _ = self.mag_queue.get_nowait()
+            self.mag_queue.put_nowait(mag_dict)
+        except aio.QueueFull:
+            pass
+
+    async def get_latest_mag(self) -> dict | None:
+        """Return the most recent magnet telemetry dict (or None if not ready)."""
+        async with self._latest_mag_lock:
+            return None if self._latest_mag is None else dict(self._latest_mag)
+
+    async def wait_mag(self, timeout: float | None = None) -> dict:
+        """Wait for the next magnet telemetry update from DAQ."""
+        if timeout is None:
+            return await self.mag_queue.get()
+        return await aio.wait_for(self.mag_queue.get(), timeout=timeout)   
 
     # Do the channel reading
     def read_channels(self):
@@ -52,9 +85,13 @@ class ADR_DAQ():
 
         return data
 
+    # --- leave read_channels as-is (sync), but wrap it for async use ---
+    async def read_channels_async(self):
+        """Read all channels under the shared SIM I/O lock, in a worker thread."""
+        async with self.sim_lock:
+            return await aio.to_thread(self.read_channels)
+
     async def DAQ_run(self):
-        # Just read the channels as fast as we can
-        # but average over the sampling rate to reduce noise
         data = copy.deepcopy(arc.empty_data_frame)
         t0 = time.time()
         try:
@@ -63,28 +100,37 @@ class ADR_DAQ():
                 await self._handle_commands()
                 while not self._pause_event.is_set():
                     await self._handle_commands()
-                    await aio.sleep(0.1)  # Sleep a bit to avoid busy loop
+                    await aio.sleep(0.1)
 
-    
-                while (time.time()-t0) < self.sample_rate:
-                    data = pd.concat([data, self.read_channels()], ignore_index=True)
+                while (time.time() - t0) < self.sample_rate:
+                    sample = await self.read_channels_async()
+
+                    # Publish magnet telemetry at the same cadence as samples
+                    # (keys match your expanded ARC column names)
+                    row = sample.iloc[0]
+                    mag = {
+                        "Time": float(row.get("Time")),
+                        "EMF": float(row.get("Sim970 EMF")),
+                        "MagCurr": float(row.get("Sim970 MagCurr")),
+                        "MagVolt": float(row.get("Sim970 MagVolt")),
+                    }
+                    await self._put_mag(mag)
+
+                    data = pd.concat([data, sample], ignore_index=True)
                     await aio.sleep(0.001)
-                    # to-do: force loop end if sample rate changes
-                    
+
                 data = data.mean(axis=0).to_frame().T
                 if self.verbose:
                     print(data)
 
                 arc.save_arc(data)
                 t0 = time.time()
-                
-                
+
         except KeyboardInterrupt:
             print("Stopping DAQ")
-            self.stop()
+            await self.stop()
             cg.close(init_channel_functions=True)
         return
-
     async def start(self):
         if self.task is None or self.task.done():
             self._stop_event.clear()

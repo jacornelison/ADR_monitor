@@ -34,7 +34,7 @@ from pyqtgraph.Qt import QtCore, QtWidgets
 from pyqtgraph.parametertree import Parameter, ParameterTree
 
 from ADR_ARC import ADR_ARC
-from ADR_Config_time_range import ADR_Config
+from ADR_Config import ADR_Config
 
 # HDF5 file locking can cause issues on network shares; the archive code uses HDF5 via pandas.
 os.environ.setdefault("HDF5_USE_FILE_LOCKING", "FALSE")
