@@ -2,16 +2,31 @@
 """
 Created on Mon Apr 28 16:58:40 2025
 
-@author: detector-group
+@author: JCornelison
 """
+
 import os
-measdir = os.path.join('C:\\Users','detector-group','Documents','ADR_Cooldowns')
+cryostat_name = "custom"
+
+if cryostat_name == "DR":
+    measdir = os.path.join('D:\\measurements')
+elif cryostat_name == "custom":
+    measdir = os.path.join('C:\\Users','jcornelison','Documents','ADR_Cooldowns')
+else:
+    measdir = os.path.join('C:\\Users','detector-group','Documents','ADR_Cooldowns')
+
 
 ##########
-measname = '20251210_cooldown'
+measname = '20260202_cooldown'
 figdir = os.path.join(measdir,measname,'figs')
 datadir = os.path.join(measdir,measname,'data')
-sample_name = 'ULR1'
+sample_name = 'ULR2'
+
+# ##########
+# measname = '20251210_cooldown'
+# figdir = os.path.join(measdir,measname,'figs')
+# datadir = os.path.join(measdir,measname,'data')
+# sample_name = 'ULR1'
 
 
 # ##########

@@ -23,6 +23,25 @@ if cg.cryostat_name == "DR":
 else:
     import amp_control as ap
     import VNA_control.KS_PNA as vn
+    ap.amps_toggle_on()
+
+
+#% Init Cold load thermometer
+from drivers import model_218
+ls218_address = 'COM13'
+ls218 = model_218.Model218(baud_rate=9600, com_port=ls218_address)
+cl_channel = 2
+
+def get_tcl():
+    tmp = ls218.get_sensor_reading(cl_channel)
+    if tmp is None:
+	    tmp = 0.000
+    return tmp
+
+#% Init cold load heater
+import qcodes.instrument_drivers.Keysight.keysight_E36311a as ks
+ksdc2 = ks.E36313A('DC3', 'USB0::0x2A8D::0x1002::MY59001527::INSTR')
+
 
 
 #%%
@@ -43,13 +62,10 @@ ifbw = 10e3
 vna_power = np.array([-35,-30,-25])
 print_fit_params = False
 
-# Temp Sweep Stuff
-Tstop = 8 # Kelvin. Stop sweep after we're above this temp.
-
 
 # Grab the resonator list from the wide sweeps
 fname =  os.path.join(datadir,f'resonator_freq_list_{sample_name}.pkl')
-print(f'Loading frequency fchedule from:\n {fname}\n\n')
+print(f'Loading frequency schedule from:\n {fname}\n\n')
 with open(fname,'rb') as file:
    res0 = pk.load(file)
    res = res0[:]
@@ -78,35 +94,38 @@ print_output=False
 
 print('\n')
 
-#ap.amps_toggle_on()
+#%
+# Zhaodi / Cyndia had roughly 2V increments and waited 1 hour between each setting.
+wait_ratio = 2 / (3600*2) # Let's go slower, but only go half of full temp
 
-T0 = 0
-tstart = 0
+Vstart = 0
+Vend = 10 # Max voltage I've seen in code / logs is 21 V
+wait_interval = 300 # in seconds
+Vincrement = wait_ratio * wait_interval
+Vloop = np.round(np.arange(Vstart,Vend+Vincrement,Vincrement),2)
+Nsteps = len(Vloop)
+
+
+#% Run cold load ramp and VNA sweeps.
+
 startflag = True
 #res = res0[:]
 try:
-    while T0<=Tstop:
-    #for dummy in [0]: # To run just once, for troubleshooting
-        # Wait to sweep until change in temp exceeds this number
-        # Higher resolution at lower temps.
-        if T0<=0.5:
-            difftemp_thresh = 0.005 # K.
+
+    for ramp_idx, cl_volts in enumerate(Vloop):
+    #for ramp_idx, cl_volts in enumerate([0]): # To run just once, for troubleshooting
+        # Ramp to voltage and wait allotted time. before sweeping.
+        
+        print(f'Stepping to {cl_volts}V')
+        if ramp_idx == 0:
+            time.sleep(0)
         else:
-            difftemp_thresh = 0.05 # K.
-        
+            ksdc2.ch2.source_voltage(cl_volts)
+            ksdc2.ch2.enable('on')
+            time.sleep(wait_interval)
+            
+
         T = res_temp.temperature()
-        difftemp = np.abs(T-T0)
-        # Only take data if we're above a certain threshold.
-        # Continuously check, but only print that we're waiting if it's been
-        # a while.
-        if difftemp<=difftemp_thresh:
-            if time.time()-tstart>5:
-                print(f'Waiting for temp to change by {difftemp_thresh} K')
-                print(f'Previous Temp: {round(T0,3)}\t|\tCurrent Temp: {round(T,3)} ')
-                tstart = time.time()
-            continue
-        
-        
         # Loop over resonators at a given input power.
         comp_times = []
         for pwridx,pwr in enumerate(vna_power):
@@ -145,6 +164,7 @@ try:
                 if fidx == 0:
                     T0 = T
                 
+                Tcl = get_tcl()
                 fileDataDict = {
                     'I' : I,
                     'Q' : Q,
@@ -152,10 +172,18 @@ try:
                     'name' : f'{sample_name}_RES{fidx}',
                     'pwr' : pwr-60,
                     'temp' : T,
-                    'time' : meas_time
+                    'time' : meas_time,
+                    'cold_load_temp': Tcl
                     }
                 
                 resObj1 = scr.makeResFromData(fileDataDict, paramsFn = scr.cmplxIQ_params, fitFn = scr.cmplxIQ_fit)
+                
+                # scraps doesn't save metadata naturally, so add time and cold load into its own metadata dict.
+                resObj1.meta = {
+                    "time": fileDataDict["time"],
+                    "cold_load_temp": fileDataDict["cold_load_temp"],
+                    }
+                
                 resListList[fidx].append(resObj1)
                 
                 if follow_res and pwr==follow_power:
@@ -169,14 +197,10 @@ try:
                         print('Parameter %s'%par_names[i] + ' is %.4f'%value)
                         #txtstr += f'{par_names[i]}:{int(value)}\n'
                 comp_times.append(time.time()-tstart)
-            #     if pwridx==0 and fidx==0:
-            #         est_time_left = np.median(comp_times)*((len(vna_power)-1-pwridx)*len(res)+(len(res)-1))
-            #         print(f'Estimated completion time: {round(est_time_left,2)} seconds')
-            # est_time_left = np.median(comp_times)*(len(vna_power)-1-pwridx)*len(res)
-            # print(f'Estimated completion time: {round(est_time_left,2)} seconds')
-        
+
             
         vn.vna_power_off()
+        print(f'Cold Load Temp: {Tcl} K')
         print(f'Total Completion time: {np.sum(comp_times):0.2f} seconds')
 
         startflag = False
@@ -185,68 +209,26 @@ except KeyboardInterrupt:
     print('Stopping Temp measurements')
     vn.vna_power_off()
     
+    
 
-#%
+# except Exception as e:
+#     print(f"An unexpected error occurred: {e}")
+    
+#     # Turn off the VNA
+#     print('Stopping Temp measurements')
+#     vn.vna_power_off()
+        
+#%%
 # We may take more than one, so don't overwrite sweep data if it already exists.
 count = 0
-fname =  os.path.join(datadir,f'temp_sweep_data_and_fits_{sample_name}_{count}.pkl')
+fname =  os.path.join(datadir,f'coldload_sweep_data_and_fits_{sample_name}_{count}.pkl')
 while os.path.exists(fname):
     print(f'{fname} already exists!')
     count+=1
-    fname =  os.path.join(datadir,f'temp_sweep_data_and_fits_{sample_name}_{count}.pkl')
+    fname =  os.path.join(datadir,f'coldload_sweep_data_and_fits_{sample_name}_{count}.pkl')
 
 print(f'Saving temperature sweeps to: {fname}\n\n')
 with open(fname,'wb') as file:
     pk.dump(resListList,file)
-
-#%%
-# After we're done with the scan/fits, make the plots.
-for fidx,f in enumerate(res):
-    figA = scr.plotResListData(resListList[fidx],
-                               plot_types = ['IQ','LogMag', 'Phase'], #Make three plots
-                               num_cols = 3, #Number of columns
-                               fig_size = 5, #Size in inches of each subplot
-                               color_by='temps',
-                               show_colorbar = True, #Don't need a colorbar with just one trace
-                               force_square = True, #If you love square plots, this is for you!
-                               )#plot_fits = [False]*3) #Overlay the best fit, need to specify for each of the plot_types
-    
-    [sp.grid(True) for sp in figA.axes[0:-1]]
-    figA.suptitle(resListList[fidx][0].name)
-    figA.tight_layout()
-    fname = os.path.join(figdir,f'IQvsTemp_res_{fidx}_{sample_name}.png')
-    plt.savefig(fname,dpi=300)
-    
-
-#%%
-
-def plotAllResParamsVsX(reslistlist,xname,xvallabel):
-    par_names = reslistlist[0][0].lmfit_labels
-    
-    plt.figure(figsize=(10/3,10/3))
-    fig, axs = plt.subplots(3,3,sharex='all',subplot_kw=dict(xlabel=xvallabel))
-    newaxs = np.reshape(axs,(-1,1))
-    for axidx,ax in enumerate(newaxs):
-        ax = ax[0]
-        # consolidate fitparams as a function of xparam
-        y_all = []
-        for residx,reslist in enumerate(reslistlist):
-            xvals = []
-            yvals = []
-            for xidx,res in enumerate(reslist):
-                xvals.append(getattr(res,xname))
-                yvals.append(res.lmfit_vals[axidx])
-                y_all.append(res.lmfit_vals[axidx])
-                
-        
-        ax.plot(xvals,yvals)
-        ax.grid(True)
-        ax.set_ylabel(par_names[axidx])
-    plt.tight_layout()
-    return fig
-
-figB = plotAllResParamsVsX(resListList,'temp','Temperature [K]')
-#fname = os.path.join(figdir,f'FitParmsvsTemp_res_{sample_name}.png')
-#plt.savefig(fname,dpi=300)
 
 

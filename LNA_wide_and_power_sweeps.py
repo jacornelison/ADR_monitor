@@ -11,11 +11,22 @@ import os
 import matplotlib.pyplot as plt
 import scraps as scr
 import pickle as pk
-from qcodes.instrument_drivers.Lakeshore.Model_372 import Model_372
-from qcodes.instrument_drivers.Lakeshore.Model_372 import Model_372_Channel
-import amp_control as ap
-import VNA_control as vn
 import LNA_sweep_config as cg
+import res_misc_funcs as rmf
+
+temp_channel = 8 # 8 for DR / 10 for ADR
+
+if cg.cryostat_name == "DR":
+    import VNA_control.RS_ZNB as vn
+    res_temp = rmf.DR_temp_read(temp_channel)
+    
+else:
+    import amp_control as ap
+    import VNA_control.KS_PNA as vn
+
+
+
+
 
 #%%
 
@@ -28,32 +39,8 @@ sample_name = cg.sample_name
 figdir = cg.figdir
 datadir = cg.datadir
 
-# Thermometry Stuff
-lakeshore_address = 'GPIB0::3::INSTR'
-temp_channel = 10
 
-# Initialize Instruments
 
-# Turn the bias and power amps on
-ap.amps_toggle_on()
-
-# Initialize the Thermometry
-class Model_372_v2(Model_372):
-    def __init__(self, name: str, address: str, **kwargs) -> None:
-        super().__init__(name, address, **kwargs)
-
-    def scan_status(self):
-        self.visa_handle.write('SCAN?')
-        _x = self.visa_handle.read()
-        return [int(_y) for _y in _x.split(',')]
-
-    def scan(self, ich, autoscan):
-        self.visa_handle.write(f'SCAN {ich}, {autoscan}')
-
-ls = Model_372_v2('lakeshore_372_1', lakeshore_address)
-if temp_channel != 'A': # Select our channel and turn off autoscan
-    ls.scan(temp_channel,0)
-res_temp = Model_372_Channel(ls, 'res_temp', str(temp_channel))
 
 #%%
 # VNA setup
@@ -62,16 +49,16 @@ ifbw = 10e3
 
 # For wide sweeps to find the resonances
 Nsweeps = 1
-fstart_wide = 5.0e9#0.75e9 # Hz
-fstop_wide = 6.2e9#2.5e9 # Hz
+fstart_wide = 0.75e9#0.75e9 # Hz
+fstop_wide = 4.0e9#2.5e9 # Hz
 ifbw_wide = 50e3 # Hz
-vna_power_wide = -10 # in dBm
-ddf_thresh = 0.5 # Will look for peaks above this value in the double differential
+vna_power_wide = -20 # in dBm
+ddf_thresh = 0.75 # Will look for peaks above this value in the double differential
 closeness_thresh = 5e5 # in Hz. throw out peaks that are closer than this
 
 # Fine sweeps over multiple powers
-skip_wide_sweep = False
-vna_power = np.arange(-50,5,10)#np.arange(-50,15,10)
+skip_wide_sweep = True
+vna_power = np.arange(-50,-5,10)#np.arange(-50,15,10)
 print_fit_params = False
 
 
@@ -86,9 +73,8 @@ for N in np.arange(0,Nsweeps):
     vn.start_vna_sweep(vna_power_wide)
     X,Y,R,THETA,FREQ = vn.get_VNA_data()
 
-tme = time.strftime("%H_%M_%S")
+#tme = time.strftime("%H_%M_%S")
 
-print(tme)
 
 wide_sweep_data = {
     'X' : X,
@@ -102,12 +88,12 @@ wide_sweep_data = {
     }
 
 
-fname =  os.path.join(datadir,f'VNA_wide_sweep_{sample_name}_time_{tme}.pkl')
-print(f'Saving  sweeps to: {fname}\n\n')
-with open(fname,'wb') as file:
-    pk.dump(wide_sweep_data,file)
+# fname =  os.path.join(datadir,f'VNA_wide_sweep_{sample_name}.pkl')
+# print(f'Saving  sweeps to: {fname}\n\n')
+# with open(fname,'wb') as file:
+#     pk.dump(wide_sweep_data,file)
     
-#% Actually find the resonators
+#%% Actually find the resonators
 
 load_sweep = False
 if load_sweep:
@@ -117,8 +103,10 @@ if load_sweep:
     FREQ = wide_sweep_data['FREQ']
     #T = wide_sweep_data['T']
 
-R_diff = np.abs(np.diff(np.abs(np.diff(R))))
+R_diff = np.abs(np.diff((np.diff(R))))
 F_diff = FREQ[0:len(R_diff)]
+ddf_thresh = 5*np.std(R_diff)+np.median(R_diff)
+
 res = vn.find_resonators(R_diff,F_diff,ddf_thresh,closeness_thresh)
 res_R = np.interp(res,FREQ,R)
 
@@ -144,6 +132,7 @@ plt.grid(True)
 plt.legend(['Data','Data-dots','Res Peaks','Threshold'])
 plt.xlabel('Frequency [Hz]')
 plt.ylabel('$-\partial^2 S_{21}/\partial f^2$')
+#plt.yscale('log')
 
 plt.suptitle(f'VNA Wide Sweep: {sample_name} @ {vna_power_wide} dBm input power @ {int(T*1000-np.mod(T*1000,50))} mK')
 if T>1:
@@ -152,7 +141,7 @@ plt.tight_layout()
 #pltname = os.path.join(figdir,f'VNA_wide_sweep_{sample_name}_pwr_{vna_power_wide}_time_{tme}.png')
 pltname = os.path.join(figdir,f'VNA_wide_sweep_{sample_name}_pwr_{vna_power_wide}.png')
 print(f'Saving wide sweep plot to:\n{pltname}\n\n')
-plt.savefig(pltname,dpi=300)
+#plt.savefig(pltname,dpi=300)
 
 print(f'Found {len(res)} resonators at (GHz):\n{res/1e9}\nPlease verify that these make sense in the plots\n\n')
 
@@ -184,7 +173,7 @@ if skip_wide_sweep:
     with open(fname,'rb') as file:
         res = pk.load(file)
 
-#%%
+#%% Actually run the Fine sweeps
 
 #res = [5.83225344e9]
 
@@ -276,9 +265,11 @@ for fidx,f in enumerate(res):
     [sp.grid(True) for sp in figA.axes[0:-1]]
     figA.suptitle(f"{resListList[fidx][0].name} @ {resListList[fidx][0].temp:0.3f}K")
     figA.tight_layout()
-    fname = os.path.join(figdir,f'IQvsPower_res_{fidx}_{sample_name}_time_{tme}_hi_f.png')
+    fname = os.path.join(figdir,f'IQvsPower_res_{fidx}_{sample_name}.png')
     plt.savefig(fname,dpi=300)
 
+#%%
+plt.close('all')
 
 #%%
 

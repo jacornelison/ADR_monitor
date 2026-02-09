@@ -98,6 +98,118 @@ def f0_tls(params, temps, powers, data = None, eps = None, **kwargs):
     else:
         return model
 
+
+
+def qi_tls(params, temps, powers, data=None, eps=None, **kwargs):
+    """A model of internal quality factor vs temperature and power, weighted by uncertainties.
+
+    Parameters
+    ----------
+    params : ``lmfit.Parameters`` object
+        Parameters must include ``['Fd', 'q0', 'f0', 'alpha', 'delta0']``.
+
+    temps : ``numpy.Array``
+        Array of temperature values to evaluate model at. May be 2D.
+
+    powers : ``numpy.Array``
+        Array of power values to evaluate model at. May be 2D.
+
+    data : ``numpy.Array``
+        Data values to compare to model. May also be ``None``, in which case
+        function returns model.
+
+    eps : ``numpy.Array``
+        Uncertianties with which to weight residual. May also be ``None``, in
+        which case residual is unwieghted.
+
+    Returns
+    -------
+
+    residual : ``numpy.Array``
+        The weighted or unweighted vector of residuals if ``data`` is passed.
+        Otherwise, it returns the model.
+
+    Note
+    ----
+    The following constraint must be satisfied::
+
+        all(numpy.shape(x) == numpy.shape(data) for x in [temps, powers, eps])
+
+    It is almost certain that this model does NOT apply to your device as the
+    assumptions it makes are highly constraining and ignore several material
+    parameters. It is included here more as an example for how to write a model
+    than anything else, and it does at least qualitatively describe the behavior
+    of most superconducting resonators.
+
+    This model is taken from J. Gao's Caltech dissertation (2008) and the below
+    equations are from that work.
+
+    (2.54) gives for MBD: ``1/Q(T)-1/Q(0) = alpha * R(T)/X(0)``
+
+    (5.72) and (5.65) give for TLS: ``1/Q(T)-1/Q(0) = Fd*tanh(hf/2kT)/sqrt(1+P/P0)``
+
+    R(T)/X(0) calculated from (2.80), (2.89), and (2.90), using the ``deltaBCS``
+    function in this module for returning gap as a function of temperature.
+
+    """
+
+    Fd = params['Fd'].value
+    Pc = params['Pc'].value
+    f0 = params['f0'].value
+    q0 = params['q0'].value
+    #delta0 = params['delta0'].value*sc.e
+    #alpha = params['alpha'].value
+
+    units = kwargs.pop('units', 'mK')
+    assert units in ['mK', 'K'], "Units must be 'mK' or 'K'."
+
+    if units == 'mK':
+        ts = temps*0.001
+
+    #Assuming thick film local limit
+    #Other good options are 1 or 1/3
+    #gamma = kwargs.pop('gamma', 0.5)
+
+    #Calculate tc from BCS relation
+    #tc = delta0/(1.76*sc.k)
+
+    #Get the reduced energy gap
+    #deltaR = deltaBCS(ts/tc)
+
+    #And the energy gap at T
+    #deltaT = delta0*deltaR
+
+    #Pack all these together for convenience
+    zeta = sc.h*f0/(2*sc.k*ts)
+
+    #An optional power calibration in dB
+    #Without this, the parameter Pc is meaningless
+    pwr_cal_dB = kwargs.pop('pwr_cal_dB', 0)
+    ps = powers+pwr_cal_dB
+
+    #Working in inverse Q since they add and subtract  nicely
+
+    #Calculate the inverse Q from TLS
+    invQtls = Fd*np.tanh(zeta)/np.sqrt(1.0+10**(ps/10.0)/Pc)
+
+    #Calculte the inverse Q from MBD
+    #invQmbd = alpha*gamma*4*deltaR*np.exp(-deltaT/(sc.k*ts))*np.sinh(zeta)*k0(zeta)
+
+    #Get the difference from the total Q and
+    model = 1.0/(invQtls + 1.0/q0)
+
+    #Weight the residual if eps is supplied
+    if data is not None:
+        if eps is not None:
+            residual = (model-data)/eps
+        else:
+            residual = (model-data)
+
+        return residual
+    else:
+        return model
+
+
 def f0_tls_mod(params, temps, powers, data = None, eps = None, **kwargs):
     """A model of frequency shift vs temperature and power, weighted by uncertainties. Same as TLS, but has a overall temp offset, DT.
 
@@ -371,7 +483,6 @@ def refit_QI_min_freq(resListList):
 
 
 
-
 def do_lmfit_ragged(resSweep,
                     model_func,
                     params,
@@ -379,26 +490,17 @@ def do_lmfit_ragged(resSweep,
                     min_temp=None,
                     max_temp=None,
                     powers=None,
-                    verbose=False):
+                    verbose=False,
+                    method='leastsq',
+                    minimize_kws=None,
+                    nan_policy='omit'):
     """
     Ragged-data fitter for ResonatorSweep that works for both Qi and f0 models.
 
-    Parameters
-    ----------
-    resSweep : scraps.ResonatorSweep
-        Sweep object; must have resSweep[param_name] as a DataFrame
-    model_func : callable
-        Function signature: model_func(params, T_array, P_array) -> predicted values
-    params : lmfit.Parameters
-        Initial fit parameters
-    param_name : str
-        Name of the parameter to fit ('qi' or 'f0')
-    min_temp, max_temp : float, optional
-        Temperature filtering
-    powers : iterable, optional
-        Only fit these power values
-    verbose : bool
-        Print fit report
+    Added controls:
+      - method: lmfit/scipy minimization method (default 'leastsq')
+      - minimize_kws: dict of kwargs forwarded to Minimizer.minimize()
+      - nan_policy: lmfit nan handling ('raise', 'propagate', 'omit')
     """
 
     df = resSweep[param_name]
@@ -412,7 +514,6 @@ def do_lmfit_ragged(resSweep,
         Tvals = T_grid
         Yvals = col.values
 
-        # Temperature filter
         mask = np.ones_like(Tvals, dtype=bool)
         if min_temp is not None:
             mask &= (Tvals >= min_temp)
@@ -425,7 +526,6 @@ def do_lmfit_ragged(resSweep,
         P_list.append(np.full(np.sum(mask), P))
         Y_list.append(Yvals[mask])
 
-        # pick up uncertainties if available
         sigma_name = param_name + '_sigma'
         if sigma_name in resSweep:
             Y_sigma_list.append(resSweep[sigma_name].iloc[:, j].values[mask])
@@ -435,7 +535,7 @@ def do_lmfit_ragged(resSweep,
     Y = np.concatenate(Y_list)
     Y_sigma = np.concatenate(Y_sigma_list) if Y_sigma_list else None
 
-    # Remove any remaining NaNs or infs
+    # Remove remaining NaNs/Infs from data (and sigma if present)
     mask_finite = np.isfinite(Y)
     if Y_sigma is not None:
         mask_finite &= np.isfinite(Y_sigma)
@@ -448,28 +548,27 @@ def do_lmfit_ragged(resSweep,
     if Y.size == 0:
         raise ValueError(f"No valid points left to fit for parameter '{param_name}'")
 
-    # residual function
     def residual(fit_params):
         model_Y = model_func(fit_params, T, P)
         model_Y = np.asarray(model_Y).reshape(-1)
 
         # guard against NaNs in the model
         if not np.all(np.isfinite(model_Y)):
-            bad_mask = ~np.isfinite(model_Y)
-            model_Y = model_Y.copy()
-            model_Y[bad_mask] = 0.0
+            model_Y = np.where(np.isfinite(model_Y), model_Y, 1e30)
 
         resid = Y - model_Y
         if Y_sigma is not None:
             resid = resid / Y_sigma
         return resid
 
-    # run the fit
-    minner = lf.Minimizer(residual, params)
-    result = minner.minimize()
+    # Run the fit, with pass-through control knobs
+    if minimize_kws is None:
+        minimize_kws = {}
+
+    minner = lf.Minimizer(residual, params, nan_policy=nan_policy)
+    result = minner.minimize(method=method, **minimize_kws)
 
     if verbose:
         lf.report_fit(result)
 
     return result
-

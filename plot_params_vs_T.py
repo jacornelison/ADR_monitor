@@ -14,6 +14,7 @@ import warnings
 import glob
 import lmfit as lf
 import res_fit_models as rfm
+import res_misc_funcs as miscfun
 import LNA_sweep_config as cg
 warnings.filterwarnings('ignore')
 
@@ -26,7 +27,7 @@ measname = cg.measname
 sample_name = cg.sample_name
 figdir = cg.figdir
 datadir = cg.datadir
-powers = [-70]
+powers = [-25-60]
 
 # Grab the resonator list from the wide sweeps
 fname =  os.path.join(datadir,f'resonator_freq_list_{sample_name}.pkl')
@@ -36,7 +37,7 @@ with open(fname,'rb') as file:
 
 #count = 0
 
-fname =  os.path.join(datadir,f'temp_sweep_data_and_fits_{sample_name}_*.pkl')
+fname =  os.path.join(datadir,f'temp_sweep_data_and_fits_{sample_name}_1.pkl')
 files = glob.glob(fname)
 
 
@@ -79,6 +80,8 @@ for fileidx,file in enumerate(files):
 #     resListList[fidx] = rltemp[::]
 
 
+# Build sweeps once
+resSweeps = [scr.ResonatorSweep(reslist, index='block') for reslist in resListList]
 
 
 #%%
@@ -138,656 +141,336 @@ for fidx, reslist in enumerate(resListList):
             #print(Tlist.lmfit_result['default']['result'].covar)
         if sample_name=='FT157' and ((fidx == 0) or (fidx==1)) and ((Tlist.temp < 0.160) and (Tlist.temp > 0.100)):
             Tlist.lmfit_result['default']['result'].covar = np.ones((9,9))*1e20
-
-
-#%% Fit df curves
-Tfitmax = np.ones((len(res),1))*1200#
-#Tfitmax = [1000,1000,1000,1000,1000,1100,1100,1200,1200,1200]
-Tfitmin = np.zeros((len(res),1))
-Tplotmax = 1500
-# Tfitmax = [500, 500, 500, 500]#
-# Tfitmin = [00, 00, 00, 00]
-# Tplotmax = 700
-parmlabels = ['$f_0$','tan$\\delta$','$\\alpha$','$T_c$']
-resSweeps = []
-
-#for fidx,reslist in enumerate([resListList[2]]):
-for fidx,reslist in enumerate(resListList):
-    resSweeps.append(scr.ResonatorSweep(reslist,index='block'))
-
-    f0_params = lf.Parameters()
     
-    #Resonant frequency at zero temperature and zero power
-    f0_guess = resSweeps[fidx]['f0'].iloc[0, 0]
-    f0_params.add('f0',
-                  value = f0_guess,)
-                  #min = f0_guess*0.85,
-                  #max = f0_guess*1.15)
-    
-    #The loss roughly equivalent to tan delta
-    f0_params.add('Fd',
-                  value = 1e-6,
-                  min = 1e-15,
-                  max=1e-2)
-    
-    #The kinetic inductance fraction
-    f0_params.add('alpha',
-                  value = 0.7,
-                  min = 0,
-                  max = 1)
-
-    #The BCS energy gap at zero temperature
-    # Convert from known critical temperature
-    C0 = 1.764*8.617e-5 # ev/K
-    Tc = 10 # K
-    lims = 10.9# K
-    f0_params.add('delta0',
-                  value = Tc*C0,
-                  min = (Tc-lims)*C0,
-                  max = (Tc+lims)*C0,)
-
-
-    model = scr.fitsSweep.f0_tlsAndMBT(f0_params,resSweeps[fidx].tvec,resSweeps[fidx].pvec)
-
-    resSweeps[fidx].do_lmfit(['f0'],
-                            [scr.fitsSweep.f0_tlsAndMBT], #The model
-                            [f0_params], #The paramters
-                            min_temp=Tfitmin[fidx],
-                            max_temp=Tfitmax[fidx],
-                            powers=powers,
-                            )
-    
-    lf.report_fit(resSweeps[fidx].lmfit_results['f0'])
-    parmstr = "TLS+MBT Fit:\n"
-    params = resSweeps[fidx].lmfit_results['f0'].params
-    for parmidx,parm in enumerate(params.keys()):
-        if parm == 'delta0':
-            parmstr+= f"{parmlabels[parmidx]} = {params[parm].value/C0:0.2f}\n"
-        else:
-            parmstr+= f"{parmlabels[parmidx]} = {params[parm].value:0.2E}\n"
-
-    f0_guess = resSweeps[fidx].lmfit_results['f0'].params['f0'].value
-    plt.figure(fidx+4,figsize=(5,5))
-    plt.subplot2grid((3,1),(0,0),rowspan=2)
-    fitidx = (resSweeps[fidx].tvec<=Tfitmax[fidx]) & (resSweeps[fidx].tvec>=Tfitmin[fidx])
-    fitdata = np.squeeze(resSweeps[fidx]['f0'][resSweeps[fidx].pvec[0]][fitidx])
-    plt.plot(resSweeps[fidx].tvec[fitidx],(fitdata-f0_guess)/f0_guess,'.',label='Fit Data',c=[0.4,0.4,0.4])
-    idx = resSweeps[fidx].tvec<=Tplotmax
-    model = scr.fitsSweep.f0_tlsAndMBT(resSweeps[fidx].lmfit_results['f0'].params,resSweeps[fidx].tvec,resSweeps[fidx].pvec)[idx]
-    mod_df = (model-f0_guess)/f0_guess
-    data = np.squeeze(resSweeps[fidx]['f0'][resSweeps[fidx].pvec[0]][idx])
-    plt.plot(resSweeps[fidx].tvec[idx],(data-f0_guess)/f0_guess,label='All Data',lw=1)
-    plt.plot(resSweeps[fidx].tvec[idx],(model-f0_guess)/f0_guess,label='Model',lw=1)
-    #ymn = np.max([np.min(mod_df[np.isnan(mod_df)==0])*1.1,-1e-1])
-    #ymx = np.min([np.max(mod_df[np.isnan(mod_df)==0])*1.1,1e-1])
-    #plt.ylim((ymn,ymx))
-    
-    # model_T = np.arange(0,Tplotmax)
-    # dummyparm = resSweeps[fidx].lmfit_results['f0'].params.copy()
-    # dummyparm['delta0'].value = 3*C0
-    # dummyparm['alpha'].value = 0.7
-    # model2 = scr.fitsSweep.f0_tlsAndMBT(dummyparm,model_T,resSweeps[fidx].pvec)
-    # plt.plot(model_T,(model2-f0_guess)/f0_guess,label='a=0.7,Tc=3',lw=1)
-    
-    # model_T = np.arange(0,Tplotmax)
-    # dummyparm = resSweeps[fidx].lmfit_results['f0'].params.copy()
-    # dummyparm['delta0'].value = 2.4*C0
-    # dummyparm['alpha'].value = 0.2
-    # model2 = scr.fitsSweep.f0_tlsAndMBT(dummyparm,model_T,resSweeps[fidx].pvec)
-    # plt.plot(model_T,(model2-f0_guess)/f0_guess,label='a=0.2,Tc=2.4',lw=1)
-    
-    
-    ymn = np.min(mod_df[np.isnan(mod_df)==0])
-    ymx = np.max(mod_df[np.isnan(mod_df)==0])
-    yd = ymx-ymn
-    yav = (ymx+ymn)/2
-    plt.ylim((yav-yd*1.1,yav+yd*1.1))
-    
-    plt.grid(True)
-    plt.legend(loc='upper right')
-    plt.ylabel('$\Delta f/f$')
-    ax = plt.gca();
-    plt.text(0.05, 0, parmstr, horizontalalignment='left', verticalalignment='bottom', transform=ax.transAxes)
-    
-    
-    plt.subplot2grid((3,1),(2,0))
-    idx = resSweeps[fidx].tvec<=Tplotmax
-    plt.plot(resSweeps[fidx].tvec[idx],((data-model))/f0_guess)
-    plt.grid(True)
-    plt.xlabel('T [mK]')
-    plt.ylabel('Residual/F0')
-    
-    plt.suptitle(f'{sample_name} Res_{fidx}')
-    plt.tight_layout()
-    fname = os.path.join(figdir,f'F_vs_T_fits_res_{fidx}_{sample_name}.png')
-    plt.savefig(fname,dpi=300)
-
     
 
-#%% Fit df curves
-Tfitmax = [2600, 2600, 2600, 2600]#
-Tfitmin = [200, 200, 200, 200]
-Tplotmax = 4400
-# Tfitmax = [500, 500, 500, 500]#
-# Tfitmin = [00, 00, 00, 00]
-# Tplotmax = 700
-parmlabels = ['$f_0$','tan$\\delta$','$\\alpha$','$T_c$','$\\Delta$T']
-resSweeps = []
-#for fidx,reslist in enumerate([resListList[2]]):
-for fidx,reslist in enumerate(resListList):
-    resSweeps.append(scr.ResonatorSweep(reslist,index='block'))
+#%% Fit df curves (TLS-only + TLS+MBT) + plots + aggregate params for both models
 
-    f0_params = lf.Parameters()
-    
-    #Resonant frequency at zero temperature and zero power
-    f0_guess = resSweeps[fidx]['f0'].iloc[0, 0]
-    f0_params.add('f0',
-                  value = f0_guess,)
-                  #min = f0_guess*0.85,
-                  #max = f0_guess*1.15)
-    
-    #The loss roughly equivalent to tan delta
-    f0_params.add('Fd',
-                  value = 1e-6,
-                  min = 1e-8,
-                  max=1e-2)
-    
-    #The kinetic inductance fraction
-    f0_params.add('alpha',
-                  value = 0.005,
-                  min = 0,
-                  max = 1)
-    
+# ---- shared constants / plotting cosmetics ----
+C0 = 1.764 * 8.617e-5  # eV/K (BCS gap factor); used to convert delta0 -> Tc
+
+parmlookup = ['f0','Fd','alpha','delta0','q0','Pc']
+parmlabels = ['$f_0$', 'tan$\\delta$', '$\\alpha$', '$T_c$','$Q_0$','$P_c$']
+cals = [1/1e9, 1e4, 1, 1/C0,1/1e5,1e9]  # convert to display units
+units = ['GHz', '$\\times 10^{-4}$', '', 'K', '$\\times 10^{5}$','pW']
 
 
-    
-    #The BCS energy gap at zero temperature
-    # Convert from known critical temperature
-    C0 = 1.764*8.617e-5 # ev/K
-    Tc = 7.32 # K
-    lims = 2# K
-    f0_params.add('delta0',
-                  value = Tc*C0,
-                  min = (Tc-lims)*C0,
-                  max = (Tc+lims)*C0,)
+# Model configuration (you can tweak these per model here)
+
+f0_tls = {
+    'f0':    {'value': 2e9, 'min': 0.1e9, 'max': 10e9},
+    'Fd':    {'value': 1e-6, 'min': 1e-8, 'max': 1e-2},
+}
+
+Tc_guess = 2
+f0_tls_mbt = {
+    'f0':    f0_tls['f0'],
+    'Fd':    f0_tls['Fd'],
+    'alpha': {'value': 0.7, 'min': 0.5, 'max': 1.0},
+    'delta0':{'value': Tc_guess*C0, 'min': 0.5*C0, 'max': 20*C0},
+}
+
+qi_tls = {
+    'f0':    {'value': 2e9, 'min': 0.1e9, 'max': 10e9},
+    'q0':    {'value': 1e4, 'min': 1e3, 'max':1e8 },
+    'Fd':    {'value': 1e-6, 'min': 1e-8, 'max': 1e-2},
+    'Pc':    {'value': 10**(-90/10), 'min': 10**(-120/10), 'max':10**(-60/10)},
+}
+
+qi_tls_mbt = {
+    'f0':    qi_tls['f0'],
+    'Fd':    qi_tls['Fd'],
+    'alpha': {'value': 0.7, 'min': 0.5, 'max': 1.0},
+    'delta0':{'value': Tc_guess*C0, 'min': 0.5*C0, 'max': 20*C0},
+    'q0':    qi_tls['q0'],
+    'Pc':    qi_tls['Pc'],
+}
 
 
-    #The loss roughly equivalent to tan delta
-    f0_params.add('DT',
-                  value = 0,
-                  min = -80,
-                  max=2000)
+model_cfgs = [
+    dict(
+        xdata = "f0",
+        key="f0_tls_only",
+        pretty="$f_0$ TLS-only Fit",
+        func=rfm.f0_tls,
+        tfitmin=0,
+        tfitmax=250,
+        tplotmax=500,
+        out_tag="f0_tls_only",
+        init_params=f0_tls,
+    ),
+    dict(
+        xdata = "f0",
+        key="f0_tls_mbt",
+        pretty="$f_0$ TLS+MBT Fit",
+        func=scr.fitsSweep.f0_tlsAndMBT,
+        tfitmin=0,
+        tfitmax=500,
+        tplotmax=500,
+        out_tag="f0_tls+mbt",
+        init_params=f0_tls_mbt,
+    ),
+    dict(
+        xdata = "qi",
+        key="qi_tls",
+        pretty="$Q_i$ TLS-only Fit",
+        func=rfm.qi_tls,
+        tfitmin=0,
+        tfitmax=150,
+        tplotmax=500,
+        out_tag="qi_tls+mbt",
+        init_params=qi_tls,
+    ),
+    dict(
+        xdata = "qi",
+        key="qi_tls_mbt",
+        pretty="$Q_i$ TLS+MBT Fit",
+        func=scr.fitsSweep.qi_tlsAndMBT,
+        tfitmin=0,
+        tfitmax=500,
+        tplotmax=500,
+        out_tag="qi_tls+mbt",
+        init_params=qi_tls_mbt,
+    ),
+]
 
-    model = rfm.f0_tlsAndMBT_mod(f0_params,resSweeps[fidx].tvec,resSweeps[fidx].pvec)
+resSweeps = [scr.ResonatorSweep(reslist, index='block') for reslist in resListList]
 
-    resSweeps[fidx].do_lmfit(['f0'],
-                            [rfm.f0_tlsAndMBT_mod], #The model
-                            [f0_params], #The paramters
-                            min_temp=Tfitmin[fidx],
-                            max_temp=Tfitmax[fidx],
-                            )
-    
-    lf.report_fit(resSweeps[fidx].lmfit_results['f0'])
-    parmstr = "TLS+MBT Fit:\n"
-    params = resSweeps[fidx].lmfit_results['f0'].params
-    for parmidx,parm in enumerate(params.keys()):
-        if parm == 'delta0':
-            parmstr+= f"{parmlabels[parmidx]} = {params[parm].value/C0:0.2f}\n"
-        else:
-            parmstr+= f"{parmlabels[parmidx]} = {params[parm].value:0.2E}\n"
+# Aggregate fit parameters for BOTH models during fitting
+parmnames = ['f0', 'Fd', 'alpha', 'delta0']
+#parms_by_model = {cfg["key"]: {pn: [] for pn in parmnames} for cfg in model_cfgs}
+parms_by_model = {}
+plt.close('all') # Helps with memory
 
-    f0_guess = resSweeps[fidx].lmfit_results['f0'].params['f0'].value
-    plt.figure(fidx+4,figsize=(5,5))
-    plt.subplot2grid((3,1),(0,0),rowspan=2)
-    fitidx = (resSweeps[fidx].tvec<=Tfitmax[fidx]) & (resSweeps[fidx].tvec>=Tfitmin[fidx])
-    fitdata = np.squeeze(resSweeps[fidx]['f0'][resSweeps[fidx].pvec[0]][fitidx])
-    plt.plot(resSweeps[fidx].tvec[fitidx],(fitdata-f0_guess)/f0_guess,'.',label='Fit Data',c=[0.4,0.4,0.4])
-    idx = resSweeps[fidx].tvec<=Tplotmax
-    model = rfm.f0_tlsAndMBT_mod(resSweeps[fidx].lmfit_results['f0'].params,resSweeps[fidx].tvec,resSweeps[fidx].pvec)[idx]
-    data = np.squeeze(resSweeps[fidx]['f0'][resSweeps[fidx].pvec[0]][idx])
-    plt.plot(resSweeps[fidx].tvec[idx],(data-f0_guess)/f0_guess,label='All Data',lw=1)
-    plt.plot(resSweeps[fidx].tvec[idx],(model-f0_guess)/f0_guess,label='Model',lw=1)
-    
-    plt.grid(True)
-    plt.legend(loc='upper right')
-    plt.ylabel('$\Delta f/f$')
-    ax = plt.gca();
-    plt.text(0.05, 0, parmstr, horizontalalignment='left', verticalalignment='bottom', transform=ax.transAxes)
+# ---- do fits + plots ----
+for fidx, sweep in enumerate(resSweeps):
+#for fidx, sweep in enumerate([resSweeps[2]]): # Just one for testing
+#for fidx, sweep in enumerate(resSweeps[1:3]): # A few For testing
+    npwrs = len(sweep.pvec)
+    cmap = plt.get_cmap('coolwarm')
+    colors = cmap(np.linspace(0, 1, npwrs))
     
     
-    plt.subplot2grid((3,1),(2,0))
-    idx = resSweeps[fidx].tvec<=Tplotmax
-    plt.plot(resSweeps[fidx].tvec[idx],((data-model))/f0_guess)
-    plt.grid(True)
-    plt.xlabel('T [mK]')
-    plt.ylabel('Residual/F0')
-    
-    plt.suptitle(f'{sample_name} Res_{fidx}')
-    plt.tight_layout()
-    fname = os.path.join(figdir,f'F_vs_T_fits_res_MBT_mod_{fidx}_{sample_name}.png')
-    plt.savefig(fname,dpi=300)
+    for cfgidx,cfg in enumerate(model_cfgs):
+        pname = cfg["xdata"]
+        key = cfg["key"]
+        tfitmin = cfg["tfitmin"]
+        tfitmax = cfg["tfitmax"]
+        tplotmax = cfg["tplotmax"]
+        model_func = cfg["func"]
+        P0 = resSweeps[fidx][pname].iloc[0, 0]    
+        cfg_parms = list(cfg['init_params'].keys())
 
-
-#%% Fit df curves TLS
-Tfitmax = [1200 for r in range(0,len(res))]#
-Tfitmin = [0 for r in range(0,len(res))]
-Tplotmax = np.max(Tfitmax)
-parmlabels = ['$f_0$','tan$\\delta$','$\\alpha$','$T_c$']
-plt.figure(1)
-resSweeps = []
-#for fidx,reslist in enumerate([resListList[2]]):
-for fidx,reslist in enumerate(resListList):
-    resSweeps.append(scr.ResonatorSweep(reslist,index='block'))
-
-    f0_params = lf.Parameters()
-    
-    #Resonant frequency at zero temperature and zero power
-    f0_guess = resSweeps[fidx]['f0'].iloc[0, 0]
-    f0_params.add('f0',
-                  value = f0_guess,
-                  min = f0_guess*0.85,
-                  max = f0_guess*1.15)
-    
-    #The loss roughly equivalent to tan delta
-    f0_params.add('Fd',
-                  value = 1e-6,
-                  min = 1e-8,
-                  max=1e-2)
-
-    #The loss roughly equivalent to tan delta
-    # f0_params.add('DT',
-    #               value = 0,
-    #               min = -2,
-    #               max=2)
-
-    resSweeps[fidx].do_lmfit(['f0'],
-                            [rfm.f0_tls], #The model
-                            [f0_params], #The paramters
-                            min_temp=Tfitmin[fidx],
-                            max_temp=Tfitmax[fidx],
-                            )
-    
-    lf.report_fit(resSweeps[fidx].lmfit_results['f0'])
-    parmstr = "TLS-only Fit:\n"
-    params = resSweeps[fidx].lmfit_results['f0'].params
-    for parmidx,parm in enumerate(params.keys()):
-        if parm == 'delta0':
-            parmstr+= f"{parmlabels[parmidx]} = {params[parm].value/C0:0.2f}\n"
-        else:
-            parmstr+= f"{parmlabels[parmidx]} = {params[parm].value:0.2E}\n"
-
-    f0_guess = resSweeps[fidx].lmfit_results['f0'].params['f0'].value
-    plt.figure(fidx+4,figsize=(5,5))
-    plt.subplot2grid((3,1),(0,0),rowspan=2)
-    fitidx = (resSweeps[fidx].tvec<=Tfitmax[fidx]) & (resSweeps[fidx].tvec>=Tfitmin[fidx])
-    fitdata = np.squeeze(resSweeps[fidx]['f0'][resSweeps[fidx].pvec[0]][fitidx])
-    plt.plot(resSweeps[fidx].tvec[fitidx],(fitdata-f0_guess)/f0_guess,'.',label='Fit Data',c=[0.4,0.4,0.4])
-    idx = resSweeps[fidx].tvec<=Tplotmax
-    model_T = np.arange(0,Tplotmax)
-    model = rfm.f0_tls(resSweeps[fidx].lmfit_results['f0'].params,model_T,resSweeps[fidx].pvec)
-    data = np.squeeze(resSweeps[fidx]['f0'][resSweeps[fidx].pvec[0]][idx])
-    plt.plot(resSweeps[fidx].tvec[idx],(data-f0_guess)/f0_guess,label='All Data',lw=1)
-    plt.plot(model_T,(model-f0_guess)/f0_guess,label='Model',lw=1)
-
-    dummyparm = resSweeps[fidx].lmfit_results['f0'].params.copy()
-    dummyparm['Fd'].value = 0.001
-    model2 = rfm.f0_tls(dummyparm,model_T,resSweeps[fidx].pvec)
-    plt.plot(model_T,(model2-f0_guess)/f0_guess,label='tan$\delta$=1e-3',lw=1)
-
-    dummyparm = resSweeps[fidx].lmfit_results['f0'].params.copy()
-    dummyparm['Fd'].value = 0.0001
-    model2 = rfm.f0_tls(dummyparm,model_T,resSweeps[fidx].pvec)
-    plt.plot(model_T,(model2-f0_guess)/f0_guess,label='tan$\delta$=1e-4',lw=1)
-    
-    plt.grid(True)
-    plt.legend(loc='center right',fontsize='small')
-    plt.ylabel('$\Delta f/f$')
-    ax = plt.gca();
-    plt.text(0.05, 0.95, parmstr, horizontalalignment='left', verticalalignment='top', transform=ax.transAxes)
-    
-    plt.subplot2grid((3,1),(2,0))
-    idx = resSweeps[fidx].tvec<=Tplotmax
-    model = rfm.f0_tls(resSweeps[fidx].lmfit_results['f0'].params,resSweeps[fidx].tvec,resSweeps[fidx].pvec)[idx]
-    plt.plot(resSweeps[fidx].tvec[idx],((data-model))/f0_guess)
-    plt.grid(True)
-    plt.xlabel('T [mK]')
-    plt.ylabel('Residual/F0')
-    
-    plt.suptitle(f'{sample_name} Res_{fidx}')
-    plt.tight_layout()
-    fname = os.path.join(figdir,f'F_vs_T_fits_tls_only_res_{fidx}_{sample_name}.png')
-    plt.savefig(fname,dpi=300)
-    
-    
-#%% Fit df curves TLS with delta T
-Tfitmax = [500, 500, 500, 500]#
-Tfitmin = [0, 0, 0, 0]
-Tplotmax = 700
-parmlabels = ['$f_0$','tan$\\delta$','$\\Delta$T','$T_c$']
-plt.figure(1)
-resSweeps = []
-#for fidx,reslist in enumerate([resListList[2]]):
-for fidx,reslist in enumerate(resListList):
-    resSweeps.append(scr.ResonatorSweep(reslist,index='block'))
-
-    f0_params = lf.Parameters()
-    
-    #Resonant frequency at zero temperature and zero power
-    f0_guess = resSweeps[fidx]['f0'].iloc[0, 0]
-    f0_params.add('f0',
-                  value = f0_guess,
-                  min = f0_guess*0.85,
-                  max = f0_guess*1.15)
-    
-    #The loss roughly equivalent to tan delta
-    f0_params.add('Fd',
-                  value = 1e-6,
-                  min = 1e-8,
-                  max=1e-2)
-
-    #The loss roughly equivalent to tan delta
-    f0_params.add('DT',
-                  value = 0,
-                  min = -70,
-                  max=2000)
-
-    resSweeps[fidx].do_lmfit(['f0'],
-                            [rfm.f0_tls_mod], #The model
-                            [f0_params], #The paramters
-                            min_temp=Tfitmin[fidx],
-                            max_temp=Tfitmax[fidx],
-                            )
-    
-    lf.report_fit(resSweeps[fidx].lmfit_results['f0'])
-    parmstr = "TLS-only Fit:\n"
-    params = resSweeps[fidx].lmfit_results['f0'].params
-    for parmidx,parm in enumerate(params.keys()):
-        if parm == 'delta0':
-            parmstr+= f"{parmlabels[parmidx]} = {params[parm].value/C0:0.2f}\n"
-        else:
-            parmstr+= f"{parmlabels[parmidx]} = {params[parm].value:0.2E}\n"
-    
-    
-    f0_guess = resSweeps[fidx].lmfit_results['f0'].params['f0'].value
-    print(f0_guess)
-    plt.figure(fidx+4,figsize=(5,5))
-    plt.subplot2grid((3,1),(0,0),rowspan=2)
-    fitidx = (resSweeps[fidx].tvec<=Tfitmax[fidx]) & (resSweeps[fidx].tvec>=Tfitmin[fidx])
-    fitdata = np.squeeze(resSweeps[fidx]['f0'][resSweeps[fidx].pvec[0]][fitidx])
-    plt.plot(resSweeps[fidx].tvec[fitidx],(fitdata-f0_guess)/f0_guess,'.',label='Fit Data',c=[0.4,0.4,0.4])
-    idx = resSweeps[fidx].tvec<=Tplotmax
-    model_T = np.arange(0,Tplotmax)
-    model = rfm.f0_tls_mod(resSweeps[fidx].lmfit_results['f0'].params,model_T,resSweeps[fidx].pvec)
-    data = np.squeeze(resSweeps[fidx]['f0'][resSweeps[fidx].pvec[0]][idx])
-    plt.plot(resSweeps[fidx].tvec[idx],(data-f0_guess)/f0_guess,label='All Data',lw=1)
-    plt.plot(model_T,(model-f0_guess)/f0_guess,label='Model',lw=1)
-
-    dummyparm = resSweeps[fidx].lmfit_results['f0'].params.copy()
-    dummyparm['Fd'].value = 0.001
-    model2 = rfm.f0_tls_mod(dummyparm,model_T,resSweeps[fidx].pvec)
-    m2_df = (model2-f0_guess)/f0_guess
-    plt.plot(model_T,m2_df,label='tan$\delta$=1e-3',lw=1)
-
-    
-    plt.grid(True)
-    plt.legend(loc='lower right')
-    plt.ylabel('$\Delta f/f$')
-    ax = plt.gca();
-    plt.text(0.05, 0.95, parmstr, horizontalalignment='left', verticalalignment='top', transform=ax.transAxes)
-    plt.ylim((np.min(m2_df[np.isnan(m2_df)==0])*1.1,np.max(m2_df[np.isnan(m2_df)==0])*1.1))
-
-    
-    plt.subplot2grid((3,1),(2,0))
-    idx = resSweeps[fidx].tvec<=Tplotmax
-    model = rfm.f0_tls_mod(resSweeps[fidx].lmfit_results['f0'].params,resSweeps[fidx].tvec,resSweeps[fidx].pvec)[idx]
-    plt.plot(resSweeps[fidx].tvec[idx],((data-model))/f0_guess)
-    plt.grid(True)
-    plt.xlabel('T [mK]')
-    plt.ylabel('Residual/F0')
-   
-    
-    plt.suptitle(f'{sample_name} Res_{fidx}')
-    plt.tight_layout()
-    fname = os.path.join(figdir,f'F_vs_T_fits_tls_mod_res_{fidx}_{sample_name}.png')
-    plt.savefig(fname,dpi=300)
-    
-    
-#%% Fit Q curves
-Tfitmax = np.ones((len(res),1))*500#
-#Tfitmax = [1000,1000,1000,1000,1000,1100,1100,1200,1200,1200]
-Tfitmin = np.zeros((len(res),1))+50
-Tplotmax = 1500
-# Tfitmax = [500, 500, 500, 500]#
-# Tfitmin = [00, 00, 00, 00]
-# Tplotmax = 700
-parmlabels = ['$f_0$','$Q_0$','$P_c$','tan$\\delta$','$\\alpha$','$T_c$']
-resSweeps = []
-
-for fidx,reslist in enumerate([resListList[8]]):
-#for fidx,reslist in enumerate(resListList):
-    resSweeps.append(scr.ResonatorSweep(reslist,index='block'))
-
-    qi_params = lf.Parameters()
-    
-    #Resonant frequency at zero temperature and zero power
-    f0_guess = resSweeps[fidx]['f0'].iloc[0, 0]
-    qi_params.add('f0',
-                  value = f0_guess,
-                  min = f0_guess*0.85,
-                 max = f0_guess*1.15)
-    
-    #The loss roughly equivalent to tan delta
-    qi_params.add('q0',
-                  value = 1e6,
-                  min = 1e0,
-                  max=1e8)
-       
-    #The loss roughly equivalent to tan delta
-    qi_params.add('Pc',
-                  value = -110,
-                  min = -300,
-                  max=0)
-    
-    #The loss roughly equivalent to tan delta
-    qi_params.add('Fd',
-                  value = 1e-6,
-                  min = 1e-15,
-                  max=1e-2)
-    
-    #The kinetic inductance fraction
-    qi_params.add('alpha',
-                  value = 0.7,
-                  min = 0,
-                  max = 1)
-
-    #The BCS energy gap at zero temperature
-    # Convert from known critical temperature
-    C0 = 1.764*8.617e-5 # ev/K
-    Tc = 10 # K
-    lims = 10.9# K
-    qi_params.add('delta0',
-                  value = Tc*C0,
-                  min = (Tc-lims)*C0,
-                  max = (Tc+lims)*C0,)
-
-
-    #model = rfm.qi_tlsAndMBT(qi_params,resSweeps[fidx].tvec,resSweeps[fidx].pvec)
         
-    resSweeps[fidx].lmfit_results['qi'] = rfm.do_lmfit_ragged(resSweeps[fidx],
-                                 scr.fitsSweep.qi_tlsAndMBT,
-                                 qi_params,
-                                 param_name='qi',
-                                 min_temp=Tfitmin[fidx],
-                                 max_temp=Tfitmax[fidx],
-                                 )
-    
-    lf.report_fit(resSweeps[fidx].lmfit_results['qi'])
-    parmstr = "TLS-only Fit:\n"
-    params = resSweeps[fidx].lmfit_results['qi'].params
-    for parmidx,parm in enumerate(params.keys()):
-        if parm == 'delta0':
-            parmstr+= f"{parmlabels[parmidx]} = {params[parm].value/C0:0.2f}\n"
-        else:
-            parmstr+= f"{parmlabels[parmidx]} = {params[parm].value:0.2E}\n"
+        # Fit
+        # For Qi, hardcode F0 if we have that fit.
+        if key.find('qi')==0 and np.any([k['key'].find('f0') for k in model_cfgs]):
+            fit, val = next((k, v) for k, v in sweep.lmfit_results.items() if 'f0' in k)
+            cfg['init_params']['f0'] = {'value': val.params['f0'].value, 'vary': False}
+            cfg['init_params']['Fd'] = {'value': val.params['Fd'].value, 'vary': False}
             
-    npwrs = len(resSweeps[fidx].pvec)
-    cmap = plt.get_cmap('coolwarm')  # 'warm' equivalent in matplotlib
-    colors = cmap(np.linspace(0, 1, npwrs))  # evenly sample the colormap
-    
-    plt.figure(fidx+4,figsize=(5,5))
-    plt.clf()
-    plt.subplot2grid((3,1),(0,0),rowspan=2)
-    fitidx = (resSweeps[fidx].tvec<=Tfitmax[fidx]) & (resSweeps[fidx].tvec>=Tfitmin[fidx])
+        print(cfg['init_params']['f0'])
+        params = miscfun.params_from_dict(cfg["init_params"])
+        sweep.lmfit_results[key] = rfm.do_lmfit_ragged(
+            sweep,
+            model_func,
+            params,
+            param_name=pname,
+            min_temp=tfitmin,
+            max_temp=tfitmax,
+            method='least_squares',
+            minimize_kws=dict(max_nfev=8000, ftol=1e-10, xtol=1e-10, gtol=1e-10),
+        )
 
-    for pidx,pwr in enumerate(resSweeps[fidx].pvec):
-        fitdata = resSweeps[fidx]['qi'][pwr].iloc[fitidx]
-        plt.plot(resSweeps[fidx].tvec[fitidx],fitdata,'.',label=f'{pwr} dB',color=colors[pidx])#c=[0.4,0.4,0.4])
+        lf.report_fit(sweep.lmfit_results[key])
 
+        # Parameter string + aggregation
+        parmstr = f"{cfg['pretty']}:\n"
+        params = sweep.lmfit_results[key].params
 
-        idx = resSweeps[fidx].tvec<=Tplotmax
-        model_T = np.arange(0,Tplotmax)
-        model = scr.fitsSweep.qi_tlsAndMBT(resSweeps[fidx].lmfit_results['qi'].params,model_T,pwr)
-        #plt.plot(resSweeps[fidx].tvec[idx],(data-f0_guess)/f0_guess,label='All Data',lw=1)
-        plt.plot(model_T,model,label='tan$\delta$ Best Fit',lw=1)
-    
-        dummyparm = resSweeps[fidx].lmfit_results['qi'].params.copy()
-        dummyparm['Fd'].value = 0.001
-        model2 = scr.fitsSweep.qi_tlsAndMBT(dummyparm,model_T,pwr)
-        plt.plot(model_T,model2,label='tan$\delta$=1e-3',lw=1)
-    
-        dummyparm = resSweeps[fidx].lmfit_results['qi'].params.copy()
-        dummyparm['Fd'].value = 0.000001
-        model2 = scr.fitsSweep.qi_tlsAndMBT(dummyparm,model_T,pwr)
-        plt.plot(model_T,model2,label='tan$\delta$=1e-4',lw=1)
+        # # store per-sweep params (NaN if missing for this model)
+        if fidx == 0:
+            parms_by_model[key] = {p : [] for p in cfg_parms}
+            
+        for pn in cfg_parms:
+            parms_by_model[key][pn].append(params[pn].value)
+
+        # Pretty print (handles delta0 -> Tc)
+        for parmidx, parm in enumerate(params.keys()):
+            lookupidx = parmlookup.index(parm)
+            #parmstr += f"{parmlabels[parmidx]} = {params[parm].value*cals[parmidx]:0.2f}{units[parmidx]}\n"
+            parmstr += f"{parmlabels[lookupidx]} = {params[parm].value*cals[lookupidx]:0.2f}{units[lookupidx]}\n"
+
+        # Plot
+        fig = plt.figure(fidx + 100*cfgidx, figsize=(7, 5))
+        plt.clf()
+        fig.subplots_adjust(left=0.12, right=0.78, bottom=0.12, top=0.92, hspace=0.10)
+
+        # Make axes in a fixed grid inside that reserved area
+        ax_top = fig.add_subplot(3, 1, (1, 2))  # top spans rows 1-2
+        ax_res = fig.add_subplot(3, 1, 3, sharex=ax_top)
+
+        ax_top.set_ylabel(f'$\Delta {pname}/{pname}$')
+        ax_res.set_xlabel('T [mK]')
+        ax_res.set_ylabel(f'Residual/{pname}')
+
+        # Optional: hide top x tick labels
+        #ax_top.tick_params(labelbottom=False)
+
+        #ax_top = plt.subplot2grid((3, 1), (0, 0), rowspan=2)
+        ax_top.plot([], [], 'kx', label='Data (not used)')
+        lines = []
+        for pidx, pwr in enumerate(sweep.pvec):
+            fitidx = (sweep.tvec <= tfitmax) & (sweep.tvec >= tfitmin)
+            fitdata = sweep[pname][pwr].iloc[fitidx]
+            ax_top.plot(
+                sweep.tvec[fitidx],
+                (fitdata - P0) / P0,
+                '.',
+                label=f'{pwr} dB',
+                color=colors[pidx],
+            )
+
+            plotidx = (sweep.tvec <= tplotmax) & (sweep.tvec >= tfitmax)
+            plotdata = sweep[pname][pwr].iloc[plotidx]
+            ax_top.plot(
+                sweep.tvec[plotidx],
+                (plotdata - P0) / P0,
+                'x',
+                color=np.clip(colors[pidx] + 0.3, 0, 1),
+            )
         
+        for pidx, pwr in enumerate(sweep.pvec):
+            idx = sweep.tvec <= tplotmax
+            data = np.squeeze(sweep[pname][sweep.pvec[pidx]][idx])
+    
+            model_T = np.arange(0, tplotmax)
+            model = model_func(params, model_T, sweep.pvec[pidx])
+            
+            
+            if pidx == 0:
+                lab = 'tan$\\delta$ Best Fit'
+                line = ax_top.plot(model_T, (model - P0) / P0, label=lab, lw=1)
+                lines.append(line[0])
+            else:
+                lab = '_nolegend_'  
+                ax_top.plot(model_T, (model - P0) / P0, label=lab, color=lines[0].get_color(), lw=1)
+            
+            # Compare a couple dummy Fd values (only if Fd exists)
+            if 'Fd' in params:
+                for fdidx,fd_val in enumerate((1e-3, 1e-4)):
+     
+                    dummyparm = params.copy()
+                    dummyparm['Fd'].value = fd_val
+                    model2 = model_func(dummyparm, model_T, sweep.pvec[pidx])
+                    
+                    if pidx==0:
+                        lab = f'tan$\\delta$={fd_val:0.0e}'    
+                        line = ax_top.plot(model_T, (model2 - P0) / P0, label=lab, lw=1)
+                        lines.append(line[0])
+                    else:
+                        lab = '_nolegend_'  
+                        ax_top.plot(model_T, (model2 - P0) / P0, label=lab,color=lines[fdidx+1].get_color(), lw=1)
+    
+            ax_top.grid(True)
+            #ax_top.legend(loc='center right', fontsize='small',bbox_to_anchor=(1.35, 0.5))
+            ax_top.text(
+                0.05, 0.95, parmstr,
+                horizontalalignment='left',
+                verticalalignment='top',
+                transform=ax_top.transAxes
+            )
+            handles, labels = ax_top.get_legend_handles_labels()
+            leg = ax_top.legend(
+                handles, labels,
+                loc='center left',
+                bbox_to_anchor=(1.02, 0.5),   # just outside the axes
+                borderaxespad=0.0,
+                fontsize='small',
+            )
+    
+            
+            # Residual panel
+            ax_res.set_xlim(ax_top.get_xlim())
+            model_full = model_func(params, sweep.tvec, sweep.pvec[pidx])[idx]
+            ax_res.plot(sweep.tvec[idx], (data - model_full) / P0,color=colors[pidx])
+        
+
+        
+        ax_res.grid(True)
+        
+        plt.suptitle(f'{sample_name} Res_{fidx} ({cfg["pretty"]})')
+        plt.tight_layout()
+        fname = os.path.join(figdir, f'{pname}_vs_T_fits_{cfg["out_tag"]}_res_{fidx}_{sample_name}.png')
+        plt.savefig(fname, dpi=300)
+
+
+#%% Plot histograms for BOTH models (uses parms_by_model from the previous cell)
+
+parmlookup = ['f0','Fd','alpha','delta0','q0','Pc']
+parmlabels = ['$f_0$', 'tan$\\delta$', '$\\alpha$', '$T_c$','$Q_0$','$P_c$']
+cals = [1/1e9, 1e4, 1, 1/C0,1/1e5,1e9]  # convert to display units
+units = ['GHz', '$\\times 10^{-4}$', '', 'K', '$\\times 10^{5}$','pW']
+lims = [(0.5, 4), (1, 10), (0, 1.1), (0.5, 3),(0,1e6),(0,1e9)]         # also used as cuts
+Nbins = 20
+plt.close('all') # Helps with memory
+
+
+for cfg in model_cfgs:
+    key = cfg["key"]
+    tag = cfg["out_tag"]
+    cfg_parms = list(cfg['init_params'].keys())
+    # Compute cuts consistently across params (after scaling)
+    cut_array = np.ones(len(resSweeps), dtype=bool)
+    parms_all_data = []
+
+    
+    for parmidx, pn in enumerate(cfg_parms):
+        raw = np.array(parms_by_model[key][pn], dtype=float)
+        scaled = raw * cals[parmidx]
+        parms_all_data.append(scaled)
+        lookupidx = parmlookup.index(pn)
+        
+        # cut if outside limits OR NaN
+        #bad = (~np.isfinite(scaled)) | (scaled <= lims[parmidx][0]) | (scaled >= lims[parmidx][1])
+        bad = (scaled <= lims[lookupidx][0]) | (scaled >= lims[lookupidx][1])
+        cut_array[bad] = False
+
+    parms_all_data = np.array(parms_all_data)
+    
+    
+    # Plot hists
+    for parmidx, pn in enumerate(cfg_parms):
+        lookupidx = parmlookup.index(pn)
+        V = parms_all_data[parmidx][cut_array]
+
+        plt.figure(f"{tag}_{parmidx}", figsize=(4, 4))
+        plt.clf()
+
+        step = float(np.diff(lims[lookupidx])) / Nbins
+        bins = np.arange(lims[lookupidx][0], lims[lookupidx][1] + step, step)
+        plt.hist(V, bins=bins)
         plt.grid(True)
-        plt.legend(loc='center right',fontsize='small')
-        plt.ylabel('$Q_i$')
-        ax = plt.gca();
-        plt.text(0.05, 0.95, parmstr, horizontalalignment='left', verticalalignment='top', transform=ax.transAxes)
+        plt.xlabel(parmlabels[lookupidx] + f' [{units[parmidx]}]')
 
-#%%        
-    plt.subplot2grid((3,1),(2,0))
-    idx = resSweeps[fidx].tvec<=Tplotmax
-    model = rfm.f0_tls(resSweeps[fidx].lmfit_results['f0'].params,resSweeps[fidx].tvec,resSweeps[fidx].pvec)[idx]
-    plt.plot(resSweeps[fidx].tvec[idx],((data-model))/f0_guess)
-    plt.grid(True)
-    plt.xlabel('T [mK]')
-    plt.ylabel('Residual/F0')
-    
-    plt.suptitle(f'{sample_name} Res_{fidx}')
-    plt.tight_layout()
-    fname = os.path.join(figdir,f'F_vs_T_fits_tls_only_res_{fidx}_{sample_name}.png')
-    plt.savefig(fname,dpi=300)
-    
+        M = np.nanmedian(V)
+        S = np.nanstd(V)
+        N = len(V)
 
-#%% Fit df curves TLS test new lmfit func
-Tfitmax = [1200 for r in range(0,len(res))]#
-Tfitmin = [0 for r in range(0,len(res))]
-Tplotmax = np.max(Tfitmax)
-parmlabels = ['$f_0$','tan$\\delta$','$\\alpha$','$T_c$']
-plt.figure(1)
-resSweeps = []
-#for fidx,reslist in enumerate([resListList[0]]):
-for fidx,reslist in enumerate(resListList):
-    resSweeps.append(scr.ResonatorSweep(reslist,index='block'))
+        plt.suptitle(
+            f'{sample_name} {pn} ({tag})\n'
+            f'Md={M:0.2f} | $\\sigma$={S:0.2f}{units[lookupidx]} | $N_{{samp}}$={N}'
+        )
+        plt.tight_layout()
 
-    f0_params = lf.Parameters()
-    
-    #Resonant frequency at zero temperature and zero power
-    f0_guess = resSweeps[fidx]['f0'].iloc[0, 0]
-    f0_params.add('f0',
-                  value = f0_guess,
-                  min = f0_guess*0.85,
-                  max = f0_guess*1.15)
-    
-    #The loss roughly equivalent to tan delta
-    f0_params.add('Fd',
-                  value = 1e-6,
-                  min = 1e-8,
-                  max=1e-2)
+        fname = os.path.join(figdir, f'F_vs_T_overall_hist_parm_{pn}_{tag}_{sample_name}.png')
+        plt.show()
+        #plt.savefig(fname, dpi=300)
 
-    #The loss roughly equivalent to tan delta
-    # f0_params.add('DT',
-    #               value = 0,
-    #               min = -2,
-    #               max=2)
-
-    # resSweeps[fidx].do_lmfit(['f0'],
-    #                         [rfm.f0_tls], #The model
-    #                         [f0_params], #The paramters
-    #                         min_temp=Tfitmin[fidx],
-    #                         max_temp=Tfitmax[fidx],
-    #                         powers=[-60],
-    #                         )
-    
-    resSweeps[fidx].lmfit_results['f0'] = rfm.do_lmfit_ragged(resSweeps[fidx],
-                                 rfm.f0_tls,
-                                 f0_params,
-                                 param_name='f0',
-                                 min_temp=Tfitmin[fidx],
-                                 max_temp=Tfitmax[fidx],
-                                 )
-    
-    lf.report_fit(resSweeps[fidx].lmfit_results['f0'])
-    parmstr = "TLS-only Fit:\n"
-    params = resSweeps[fidx].lmfit_results['f0'].params
-    for parmidx,parm in enumerate(params.keys()):
-        if parm == 'delta0':
-            parmstr+= f"{parmlabels[parmidx]} = {params[parm].value/C0:0.2f}\n"
-        else:
-            parmstr+= f"{parmlabels[parmidx]} = {params[parm].value:0.2E}\n"
-            
-    npwrs = len(resSweeps[fidx].pvec)
-    cmap = plt.get_cmap('coolwarm')  # 'warm' equivalent in matplotlib
-    colors = cmap(np.linspace(0, 1, npwrs))  # evenly sample the colormap
+#%%
 
 
-    f0_guess = resSweeps[fidx].lmfit_results['f0'].params['f0'].value
-    plt.figure(fidx+4,figsize=(5,5))
-    plt.clf()
-    plt.subplot2grid((3,1),(0,0),rowspan=2)
-    fitidx = (resSweeps[fidx].tvec<=Tfitmax[fidx]) & (resSweeps[fidx].tvec>=Tfitmin[fidx])
 
-    for pidx,pwr in enumerate(resSweeps[fidx].pvec):
-        fitdata = resSweeps[fidx]['f0'][pwr].iloc[fitidx]
-        plt.plot(resSweeps[fidx].tvec[fitidx],(fitdata-f0_guess)/f0_guess,'.',label=f'{pwr} dB',color=colors[pidx])#c=[0.4,0.4,0.4])
 
-    idx = resSweeps[fidx].tvec<=Tplotmax
-    model_T = np.arange(0,Tplotmax)
-    model = rfm.f0_tls(resSweeps[fidx].lmfit_results['f0'].params,model_T,resSweeps[fidx].pvec)
-    data = np.squeeze(resSweeps[fidx]['f0'][resSweeps[fidx].pvec[0]][idx])
-    #plt.plot(resSweeps[fidx].tvec[idx],(data-f0_guess)/f0_guess,label='All Data',lw=1)
-    plt.plot(model_T,(model-f0_guess)/f0_guess,label='tan$\delta$ Best Fit',lw=1)
 
-    dummyparm = resSweeps[fidx].lmfit_results['f0'].params.copy()
-    dummyparm['Fd'].value = 0.001
-    model2 = rfm.f0_tls(dummyparm,model_T,resSweeps[fidx].pvec)
-    plt.plot(model_T,(model2-f0_guess)/f0_guess,label='tan$\delta$=1e-3',lw=1)
 
-    dummyparm = resSweeps[fidx].lmfit_results['f0'].params.copy()
-    dummyparm['Fd'].value = 0.0001
-    model2 = rfm.f0_tls(dummyparm,model_T,resSweeps[fidx].pvec)
-    plt.plot(model_T,(model2-f0_guess)/f0_guess,label='tan$\delta$=1e-4',lw=1)
-    
-    plt.grid(True)
-    plt.legend(loc='center right',fontsize='small')
-    plt.ylabel('$\Delta f/f$')
-    ax = plt.gca();
-    plt.text(0.05, 0.95, parmstr, horizontalalignment='left', verticalalignment='top', transform=ax.transAxes)
-    
-    plt.subplot2grid((3,1),(2,0))
-    idx = resSweeps[fidx].tvec<=Tplotmax
-    model = rfm.f0_tls(resSweeps[fidx].lmfit_results['f0'].params,resSweeps[fidx].tvec,resSweeps[fidx].pvec)[idx]
-    plt.plot(resSweeps[fidx].tvec[idx],((data-model))/f0_guess)
-    plt.grid(True)
-    plt.xlabel('T [mK]')
-    plt.ylabel('Residual/F0')
-    
-    plt.suptitle(f'{sample_name} Res_{fidx}')
-    plt.tight_layout()
-    fname = os.path.join(figdir,f'F_vs_T_fits_tls_only_res_{fidx}_{sample_name}.png')
-    plt.savefig(fname,dpi=300)
-    
-    
-    
