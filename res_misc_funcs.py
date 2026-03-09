@@ -128,13 +128,13 @@ class DR_temp_read:
 
 
 
-class ADR_temp_read():
-    def __init__(self):
+class ADR_temp_read:
+    def __init__(self,temp_channel):
         from qcodes.instrument_drivers.Lakeshore.Model_372 import Model_372
         from qcodes.instrument_drivers.Lakeshore.Model_372 import Model_372_Channel
         # Thermometry Stuff
         lakeshore_address = 'GPIB0::3::INSTR'
-        temp_channel = 10
+        
         
         # Initialize Instruments
         
@@ -159,7 +159,7 @@ class ADR_temp_read():
         
         
         
-    def temperature(self,channel):
+    def temperature(self):
         return self.res_temp.temperature()
 
     

@@ -14,16 +14,17 @@ import pickle as pk
 import LNA_sweep_config as cg
 import res_misc_funcs as rmf
 
-temp_channel = 8 # 8 for DR / 10 for ADR
+temp_channel = 'A' # 8 for DR / 10 for ADR
 
 if cg.cryostat_name == "DR":
     import VNA_control.RS_ZNB as vn
     res_temp = rmf.DR_temp_read(temp_channel)
-    
+
 else:
     import amp_control as ap
+    ap.amps_toggle_on()
     import VNA_control.KS_PNA as vn
-
+    res_temp = rmf.ADR_temp_read(temp_channel)
 
 #%%
 # Parameters for the user:
@@ -39,8 +40,8 @@ datadir = cg.datadir
 ifbw = 10e3
 
 # Fine sweeps over multiple powers
-#vna_power = np.arange(-20,15,10)#np.arange(-20,15,10)
-vna_power = np.array([-35,-30,-25])
+vna_power = np.arange(-30,5,10)#np.arange(-20,15,10)
+#vna_power = np.array([-35,-30,-25])
 print_fit_params = False
 
 # Temp Sweep Stuff

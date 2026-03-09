@@ -6,7 +6,7 @@ Created on Mon Apr 28 16:58:40 2025
 """
 
 import os
-cryostat_name = "custom"
+cryostat_name = "ADR"
 
 if cryostat_name == "DR":
     measdir = os.path.join('D:\\measurements')
@@ -17,10 +17,17 @@ else:
 
 
 ##########
-measname = '20260202_cooldown'
+measname = '20260303_cooldown'
 figdir = os.path.join(measdir,measname,'figs')
 datadir = os.path.join(measdir,measname,'data')
-sample_name = 'ULR2'
+sample_name = 'Delft_R1C3_and_B2'
+
+
+# ##########
+# measname = '20260202_cooldown'
+# figdir = os.path.join(measdir,measname,'figs')
+# datadir = os.path.join(measdir,measname,'data')
+# sample_name = 'ULR2'
 
 # ##########
 # measname = '20251210_cooldown'

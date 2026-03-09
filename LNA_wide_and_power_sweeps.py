@@ -14,7 +14,7 @@ import pickle as pk
 import LNA_sweep_config as cg
 import res_misc_funcs as rmf
 
-temp_channel = 8 # 8 for DR / 10 for ADR
+temp_channel = 'A' # 8 for DR Extension / 6 for DR MXC / 10 or 'A' for ADR
 
 if cg.cryostat_name == "DR":
     import VNA_control.RS_ZNB as vn

@@ -4,8 +4,10 @@ import PyDAQmx as mx
 
 
 class Driver():
-
-    def performOpen(options={}):
+    def __init__(self):
+        return
+    
+    def performOpen(self,options={}):
         """Reset the DIO, and then set lines to low in this order: 1/1, 1/2, 1/0."""
 
         mx.DAQmxResetDevice('ADR_DIO')
@@ -29,7 +31,7 @@ class Driver():
                 True), 0, mx.DAQmx_Val_GroupByScanNumber, setVal0, mx.byref(sampsPer), None)
             writeChan.ClearTask()
 
-    def performSetValue(quant, value, sweepRate=0.0, options={}):
+    def performSetValue(self,quant, value, sweepRate=0.0, options={}):
         """Create task, set value, close task."""
 
         if quant == 'Heat Switch':
@@ -90,7 +92,16 @@ class Driver():
 
         return value
 
-    def performGetValue(quant, options={}):
+    def SwitchOpen(self):
+        self.performSetValue('Heat Switch', 'Open')
+        return
+    
+    def SwitchClose(self):
+        self.performSetValue('Heat Switch', 'Close')
+        return
+    
+
+    def performGetValue(self,quant, options={}):
         """Create task, get value, close task."""
 
         if quant == 'Touch 4K-1K':
